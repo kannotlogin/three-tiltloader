@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three-Icosa & TiltLoader Test (Split Screen - r181)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; color: white; font-family: sans-serif; display: flex; }
+        .split { width: 50vw; height: 100vh; position: relative; }
+        #left-view { border-right: 2px solid #333; }
+        .label { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: rgba(0,0,0,0.8); border-radius: 8px; border-left: 4px solid #FF5B5B; z-index: 10; pointer-events: none; }
+        #right-view .label { border-left: none; border-right: 4px solid #5B8CFF; left: auto; right: 20px; text-align: right; }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.181.0/build/three.module.js",
+            "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.181.0/examples/jsm/",
+            "three-icosa": "./three-icosa.module.js",
+            "three-tiltloader": "../dist/three-tiltloader.module.js"
+        },
+        "scopes": {
+            "../dist/three-tiltloader.module.js": {
+                "three-icosa": "./three-icosa-tilt-instance.module.js"
+            },
+            "./tilt-loader-fixed.js": {
+                "three-icosa": "./three-icosa-tilt-instance.module.js"
+            }
+        }
+    }
+    </script>
+</head>
+<body>
+
+    <audio id="music-player" controls src="./music.mp3" style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100;"></audio>
+
+    <div id="left-view" class="split">
+        <div class="label">
+            <h2>Leftside</h2>
+            <p>sketch.tilt<br><small>(.tilt loader)</small></p>
+        </div>
+    </div>
+
+    <div id="right-view" class="split">
+        <div class="label">
+            <h2>Rightside</h2>
+            <p>sketch.gltf / .bin<br><small>(.gltf loader)</small></p>
+        </div>
+    </div>
+
+    <script type="module" src="./viewer.js"></script>
+
+</body>
+</html>
