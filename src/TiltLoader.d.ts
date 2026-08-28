@@ -1,10 +1,10 @@
-// Adapted from initial TiltLoader implementation in three.js r128
-// https://github.com/mrdoob/three.js/blob/r128/examples/jsm/loaders/TiltLoader.js
-
 import {
 	Group,
 	Loader,
-	LoadingManager
+	LoadingManager,
+	Scene,
+	Light,
+	DirectionalLight
 } from 'three';
 
 export {
@@ -47,10 +47,44 @@ export class TiltLoader extends Loader {
 
     load(
         url: string,
-        onLoad: (object: Group) => void,
+        onLoad: (group: Group) => void,
         onProgress?: (event: ProgressEvent) => void,
-        onError?: (event: ErrorEvent) => void,
+        onError?: (error: unknown) => void,
     ): void;
-    loadAsync(url: string, onProgress?: (event: ProgressEvent) => void): Promise<Group>;
-    setBrushPath(brushPath: string): void;
+    parse(buffer: ArrayBuffer): Promise<Group>;
+    setBrushPath(brushPath: string): this;
 }
+
+// -- src/SceneEnvironment.js -------------------------------------------------
+// Helpers to light/background a loaded .tilt or .gltf scene using the same
+// Tilt Brush / Open Brush environment data on both sides.
+
+export function forceDoubleSide(material: any): void;
+export function feedTiltBrushLighting(material: any): void;
+export function fixTiltMeshLighting(mesh: any): void;
+export function parseTBColor(str: string | undefined, fallbackHex: number): any;
+export function parseTBRotation(str: string | undefined): any;
+
+export function applyTBEnvironmentUserData(
+    scene: Scene,
+    ambientLight: Light,
+    dirLight0: DirectionalLight,
+    dirLight1: DirectionalLight,
+    userData: Record<string, unknown>,
+    label: string,
+): void;
+
+export function loadEnvironmentDatabase(): Promise<Record<string, unknown> | null>;
+export function loadCubemapDatabase(): Promise<Record<string, string> | null>;
+
+export function applyEnvironmentAssetData(
+    scene: Scene,
+    ambientLight: Light,
+    dirLight0: DirectionalLight,
+    dirLight1: DirectionalLight,
+    env: Record<string, unknown>,
+    cubemapDb: Record<string, string> | null,
+    label: string,
+    customData?: Record<string, unknown> | null,
+    cubemapBasePath?: string,
+): void;

@@ -1,20 +1,19 @@
-// Adapted from initial TiltLoader implementation in three.js r128
-// https://github.com/mrdoob/three.js/blob/r128/examples/jsm/loaders/TiltLoader.js
-
-import {
-	BufferAttribute,
-	BufferGeometry,
-	Clock,
-	FileLoader,
-	Group,
-	Loader,
-	Mesh,
-	Quaternion,
-	Vector3,
-	Vector4
+import { 
+    Loader, 
+    FileLoader, 
+    Group, 
+    Mesh, 
+    BufferGeometry, 
+    BufferAttribute, 
+    Clock, 
+    FrontSide, 
+    DoubleSide, 
+    BackSide, 
+    MeshBasicMaterial 
 } from 'three';
-import * as fflate from 'three/examples/jsm/libs/fflate.module.js';
-import { TiltShaderLoader } from 'three-icosa';
+import { unzipSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
+import { TiltShaderLoader, createTiltBrushRenderMaterial, applyTiltBrushRenderGroups } from 'three-icosa';
+import { generateBrushGeometry } from './brush-geometry.ts';
 
 export { createBufferGeometry } from './geometry-api.mjs';
 export {
@@ -25,283 +24,524 @@ export {
 	getGeneratedVertexCount
 } from './brush-geometry.ts';
 
-export class TiltLoader extends Loader {
-	constructor(manager) {
-		super(manager);
-		this.tiltShaderLoader = new TiltShaderLoader(manager);
-	}
+// Export lighting and environment logic seamlessly.
+export * from './SceneEnvironment.js';
 
-	load( url, onLoad, onProgress, onError ) {
-
-		const scope = this;
-
-		const loader = new FileLoader( this.manager );
-		loader.setPath( this.path );
-		loader.setResponseType( 'arraybuffer' );
-		loader.setWithCredentials( this.withCredentials );
-
-		loader.load( url, function ( buffer ) {
-
-			try {
-
-				onLoad( scope.parse( buffer ) );
-
-			} catch ( e ) {
-
-				if ( onError ) {
-
-					onError( e );
-
-				} else {
-
-					console.error( e );
-
-				}
-
-				scope.manager.itemError( url );
-
-			}
-
-		}, onProgress, onError );
-
-	}
-
-	async parse( buffer ) {
-
-		const group = new Group();
-		// https://docs.google.com/document/d/11ZsHozYn9FnWG7y3s3WAyKIACfbfwb4PbaS8cZ_xjvo/edit#
-
-		const zip = fflate.unzipSync( new Uint8Array( buffer.slice( 16 ) ) );
-
-		/*
-		const thumbnail = zip[ 'thumbnail.png' ].buffer;
-		const img = document.createElement( 'img' );
-		img.src = URL.createObjectURL( new Blob( [ thumbnail ] ) );
-		document.body.appendChild( img );
-		*/
-
-		const metadata = JSON.parse( fflate.strFromU8( zip[ 'metadata.json' ] ) );
-
-		/*
-		const blob = new Blob( [ zip[ 'data.sketch' ].buffer ], { type: 'application/octet-stream' } );
-		window.open( URL.createObjectURL( blob ) );
-		*/
-
-		const data = new DataView( zip[ 'data.sketch' ].buffer );
-
-		const num_strokes = data.getInt32( 16, true );
-
-		const brushes = {};
-
-		let offset = 20;
-
-		for ( let i = 0; i < num_strokes; i ++ ) {
-
-			const brush_index = data.getInt32( offset, true );
-
-			const brush_color = [
-				data.getFloat32( offset + 4, true ),
-				data.getFloat32( offset + 8, true ),
-				data.getFloat32( offset + 12, true ),
-				data.getFloat32( offset + 16, true )
-			];
-			const brush_size = data.getFloat32( offset + 20, true );
-			const stroke_mask = data.getUint32( offset + 24, true );
-			const controlpoint_mask = data.getUint32( offset + 28, true );
-
-			let offset_stroke_mask = 0;
-			let offset_controlpoint_mask = 0;
-
-			for ( let j = 0; j < 4; j ++ ) {
-
-				// TOFIX: I don't understand these masks yet
-
-				const byte = 1 << j;
-				if ( ( stroke_mask & byte ) > 0 ) offset_stroke_mask += 4;
-				if ( ( controlpoint_mask & byte ) > 0 ) offset_controlpoint_mask += 4;
-
-			}
-
-			// console.log( { brush_index, brush_color, brush_size, stroke_mask, controlpoint_mask } );
-			// console.log( offset_stroke_mask, offset_controlpoint_mask );
-
-			offset = offset + 28 + offset_stroke_mask + 4; // TOFIX: This is wrong
-
-			const num_control_points = data.getInt32( offset, true );
-
-			// console.log( { num_control_points } );
-
-			const positions = new Float32Array( num_control_points * 3 );
-			const quaternions = new Float32Array( num_control_points * 4 );
-
-			offset = offset + 4;
-
-			for ( let j = 0, k = 0; j < positions.length; j += 3, k += 4 ) {
-
-				positions[ j + 0 ] = data.getFloat32( offset + 0, true );
-				positions[ j + 1 ] = data.getFloat32( offset + 4, true );
-				positions[ j + 2 ] = data.getFloat32( offset + 8, true );
-
-				quaternions[ k + 0 ] = data.getFloat32( offset + 12, true );
-				quaternions[ k + 1 ] = data.getFloat32( offset + 16, true );
-				quaternions[ k + 2 ] = data.getFloat32( offset + 20, true );
-				quaternions[ k + 3 ] = data.getFloat32( offset + 24, true );
-
-				offset = offset + 28 + offset_controlpoint_mask; // TOFIX: This is wrong
-
-			}
-
-			if ( brush_index in brushes === false ) {
-
-				brushes[ brush_index ] = [];
-
-			}
-
-			brushes[ brush_index ].push( [ positions, quaternions, brush_size, brush_color ] );
-
-		}
-
-		const clock = new Clock();
-
-		for ( const brush_index in brushes ) {
-
-			const geometry = new StrokeGeometry( brushes[ brush_index ] );
-			const materialName = this.tiltShaderLoader.lookupMaterialName(metadata.BrushIndex[ brush_index ]);
-
-			const material = await this.tiltShaderLoader.loadAsync(materialName);
-			const mesh = new Mesh( geometry, material );
-			
-			const scope = this;
-
-			mesh.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
-				if(material.uniforms["u_time"]) {
-					const elapsedTime = clock.getElapsedTime();
-					// _Time from https://docs.unity3d.com/Manual/SL-UnityShaderVariables.html
-                	const time = new Vector4(elapsedTime/20, elapsedTime, elapsedTime*2, elapsedTime*3);
-
-					material.uniforms["u_time"].value = time;
-				}
-
-				if (material.uniforms["cameraPosition"]) {
-                    material.uniforms["cameraPosition"].value = camera.position;
-                }
-			};
-
-			group.add( mesh );
-		}
-
-		return group;
-
-	}
-
-	setBrushPath(path) {
-		// Quick repair of path if required
-		if (path.slice(path.length - 1) !== "/") {
-			path += "/";
-		}
-
-		this.tiltShaderLoader.setPath(path);
-	}
-
+let brushDatabasePromise = null;
+function loadBrushDatabase() {
+    if (!brushDatabasePromise) {
+        const url = new URL('./data/brush-database.json', import.meta.url);
+        brushDatabasePromise = fetch(url)
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(db => {
+                return db;
+            })
+            .catch(err => {
+                return {};
+            });
+    }
+    return brushDatabasePromise;
 }
 
-class StrokeGeometry extends BufferGeometry {
+const brushFamilyMap = {
+    "LightWire": "tube", "Disco": "tube", "TubeToonInverted": "tube",
+    "FacetedTube": "tube", "WaveformTube": "tube", "MylarTube": "tube",
+    "KeijiroTube": "tube", "TaperedWire": "tube", "Wireframe": "tube",
+    "Muscle": "tube", "Guts": "tube", "TubeAdditive": "tube",
+    "Wire (Lit)": "tube", "Fire2": "tube", "BubbleWand": "tube",
+    "Lofted (Hue Shift)": "tube", "Lofted": "tube", "Comet": "tube",
+    "DiamondHull": "hull", "MatteHull": "hull", "UnlitHull": "hull",
+    "ShinyHull": "hull", "SmoothHull": "hull", "PassthroughHull": "hull",
+    "ConcaveHull": "concave-hull",
+    "Stars": "particle", "Bubbles": "particle", "Rising Bubbles": "particle",
+    "Snow": "particle", "Embers": "particle", "Smoke": "particle",
+    "WaveformParticles": "particle", "Fairy": "particle", "Rain": "particle",
+    "Wind": "particle", "Space": "particle", "Sparks": "particle", "Splatter": "particle",
+    "ThickPaint": "thick-strip", "ThickGeometry": "thick-strip",
+    "3D Printing Brush": "print3d"
+};
 
-	constructor( strokes ) {
+const brushGeometryOverrides = {
+    "Petal": {
+        geometryParams: {
+            tubeShapeModifier: 5,               
+            tubeSideCount: 5,                   
+            tubeHardEdges: true,                
+            tubeEndCaps: false,                 
+            tubeBreakAngleMultiplier: 1000,     
+            tubePetalDisplacementAmount: 2.0,   
+            tubePetalDisplacementExponent: 3.0  
+        }
+    },
+    "Spikes": {
+        geometryParams: {
+            tubeShapeModifier: 4,    
+            tubeSideCount: 3,        
+            tubeHardEdges: true      
+        }
+    },
+    "Lofted": {
+        geometryParams: {
+            tubeShapeModifier: 1,    
+            tubeSideCount: 4,        
+            tubeHardEdges: true      
+        }
+    },
+    "Lofted (Hue Shift)": {
+        geometryParams: {
+            tubeShapeModifier: 1,
+            tubeSideCount: 4,
+            tubeHardEdges: true
+        }
+    },
+    "Comet": {
+        geometryParams: {
+            tubeUvStyle: "stretch",  
+            tubeShapeModifier: 3     
+        }
+    },
+    "LightWire": {
+        geometryParams: {
+            lightwireHack: true,             
+            tubeStoreRadiusInTexcoord0Z: true
+        }
+    },
+    "HyperGrid": {
+        geometryParams: {
+            sprayRateMultiplier: 1   
+        }
+    }
+};
 
-		super();
+const brushGeneratorMap = {
+    // none
+};
 
-		const vertices = [];
-		const colors = [];
-		const uvs = [];
+const renderBackfacesMap = {
+    "OilPaint": true, "Ink": true, "ThickPaint": true, "WetPaint": true
+};
 
-		const position = new Vector3();
-		const prevPosition = new Vector3();
+function parseSketchBinary(arrayBuffer) {
+    const data = new DataView(arrayBuffer);
+    const num_strokes = data.getInt32(16, true);
+    let offset = 20;
+    const strokes = [];
 
-		const quaternion = new Quaternion();
-		const prevQuaternion = new Quaternion();
+    for (let i = 0; i < num_strokes; i++) {
+        const brush_index = data.getInt32(offset, true);
+            
+        const brush_color = [
+            data.getFloat32(offset + 4, true),
+            data.getFloat32(offset + 8, true),
+            data.getFloat32(offset + 12, true),
+            data.getFloat32(offset + 16, true),
+        ];
+        const brush_size = data.getFloat32(offset + 20, true);
+        const stroke_mask = data.getUint32(offset + 24, true);
+        const controlpoint_mask = data.getUint32(offset + 28, true);
+        
+        let offset_stroke_mask = 0;
+        let temp_stroke_mask = stroke_mask;
+        let strokeBitIndex = 0;
+        let brushScale = 1.0;
+        let strokeSeed = i;
+        let ext_offset = offset + 32;
 
-		const vector1 = new Vector3();
-		const vector2 = new Vector3();
-		const vector3 = new Vector3();
-		const vector4 = new Vector3();
+        while (temp_stroke_mask > 0) {
+            if ((temp_stroke_mask & 1) !== 0) {
+                let extSize = 4;
+                if (strokeBitIndex === 1) brushScale = data.getFloat32(ext_offset, true);
+                else if (strokeBitIndex === 3) strokeSeed = data.getUint32(ext_offset, true);
+                
+                ext_offset += extSize;
+                offset_stroke_mask += extSize;
+            }
+            temp_stroke_mask >>>= 1;
+            strokeBitIndex++;
+        }
 
-		// size = size / 2;
+        let offset_controlpoint_mask = 0;
+        let temp_cp_mask = controlpoint_mask;
+        while (temp_cp_mask > 0) {
+            offset_controlpoint_mask += (temp_cp_mask & 1) * 4;
+            temp_cp_mask >>>= 1;
+        }
 
-		for ( const k in strokes ) {
+        offset += 32 + offset_stroke_mask;
 
-			const stroke = strokes[ k ];
-			const positions = stroke[ 0 ];
-			const quaternions = stroke[ 1 ];
-			const size = stroke[ 2 ];
-			const color = stroke[ 3 ];
+        const num_control_points = data.getInt32(offset, true);
+        offset += 4;
 
-			prevPosition.fromArray( positions, 0 );
-			prevQuaternion.fromArray( quaternions, 0 );
+        const cp_stride = 28 + offset_controlpoint_mask;
+        const controlPoints = [];
 
-			for ( let i = 3, j = 4, l = positions.length; i < l; i += 3, j += 4 ) {
+        for (let p = 0; p < num_control_points; p++) {
+            const base = offset + p * cp_stride;
+            
+            // CONVERSION: Unity (Left-handed) to Three.js (Right-handed)
+            const position = [
+                data.getFloat32(base + 0, true),
+                data.getFloat32(base + 4, true),
+                -data.getFloat32(base + 8, true) 
+            ];
+            const orientation = [
+                -data.getFloat32(base + 12, true), 
+                -data.getFloat32(base + 16, true), 
+                data.getFloat32(base + 20, true),
+                data.getFloat32(base + 24, true)
+            ];
+            
+            let pressure = 1.0;
+            let timestampMs = 0;
+            
+            let extOffset = base + 28;
+            let temp_mask = controlpoint_mask;
+            let bitIndex = 0;
+            
+            while (temp_mask > 0) {
+                if ((temp_mask & 1) !== 0) {
+                    if (bitIndex === 0) pressure = data.getFloat32(extOffset, true);
+                    else if (bitIndex === 1) timestampMs = data.getUint32(extOffset, true);
+                    extOffset += 4;
+                }
+                temp_mask >>>= 1;
+                bitIndex++;
+            }
 
-				position.fromArray( positions, i );
-				quaternion.fromArray( quaternions, j );
+            controlPoints.push({ position, orientation, pressure, timestampMs });
+        }
 
-				vector1.set( - size, 0, 0 );
-				vector1.applyQuaternion( quaternion );
-				vector1.add( position );
+        strokes.push({
+            brush_index, color: brush_color, brushSize: brush_size,
+            brushScale, controlPoints, seed: strokeSeed
+        });
 
-				vector2.set( size, 0, 0 );
-				vector2.applyQuaternion( quaternion );
-				vector2.add( position );
+        offset += num_control_points * cp_stride;
+    }
+    return strokes;
+}
 
-				vector3.set( size, 0, 0 );
-				vector3.applyQuaternion( prevQuaternion );
-				vector3.add( prevPosition );
+function createGeometryFromArrays(arraysList) {
+    if (arraysList.length === 0) return new BufferGeometry();
 
-				vector4.set( - size, 0, 0 );
-				vector4.applyQuaternion( prevQuaternion );
-				vector4.add( prevPosition );
+    let totalVertices = 0;
+    let totalIndices = 0;
+    for (const arr of arraysList) {
+        totalVertices += arr.positions.length / 3;
+        totalIndices += arr.indices.length;
+    }
 
-				vertices.push( vector1.x, vector1.y, - vector1.z, 1 );
-				vertices.push( vector2.x, vector2.y, - vector2.z, 1 );
-				vertices.push( vector4.x, vector4.y, - vector4.z, 1 );
+    const positions = new Float32Array(totalVertices * 3);
+    const normals = new Float32Array(totalVertices * 3);
+    const tangents = new Float32Array(totalVertices * 4);
+    const colors = new Float32Array(totalVertices * 4);
+    const uvs = new Float32Array(totalVertices * 2);
+    const indices = new Uint32Array(totalIndices);
+    
+    const uv0Size = arraysList[0]?.uv0Size || 2;
+    const uv1Size = arraysList[0]?.uv1Size || 0;
+    
+    let packedUvs = null;
+    let uv1s = null;
+    
+    if (uv0Size > 2) packedUvs = new Float32Array(totalVertices * uv0Size);
+    if (uv1Size > 0) uv1s = new Float32Array(totalVertices * uv1Size);
 
-				vertices.push( vector2.x, vector2.y, - vector2.z, 1 );
-				vertices.push( vector3.x, vector3.y, - vector3.z, 1 );
-				vertices.push( vector4.x, vector4.y, - vector4.z, 1 );
+    let vOffset = 0;
+    let iOffset = 0;
 
-				prevPosition.copy( position );
-				prevQuaternion.copy( quaternion );
+    for (const arr of arraysList) {
+        const vCount = arr.positions.length / 3;
+        const iCount = arr.indices.length;
 
-				colors.push( ...color );
-				colors.push( ...color );
-				colors.push( ...color );
+        positions.set(arr.positions, vOffset * 3);
+        normals.set(arr.normals, vOffset * 3);
+        if (arr.tangents) tangents.set(arr.tangents, vOffset * 4);
+        colors.set(arr.colors, vOffset * 4);
+        uvs.set(arr.uvs, vOffset * 2);
 
-				colors.push( ...color );
-				colors.push( ...color );
-				colors.push( ...color );
+        if (packedUvs && arr.packedUvs) packedUvs.set(arr.packedUvs, vOffset * uv0Size);
+        if (uv1s && arr.uv1) uv1s.set(arr.uv1, vOffset * uv1Size);
+        
+        for (let i = 0; i < iCount; i++) {
+            indices[iOffset + i] = arr.indices[i] + vOffset;
+        }
 
-				const p1 = i / l;
-				const p2 = ( i - 3 ) / l;
+        vOffset += vCount;
+        iOffset += iCount;
+    }
 
-				uvs.push( p1, 0 );
-				uvs.push( p1, 1 );
-				uvs.push( p2, 0 );
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+    geometry.setAttribute('tangent', new BufferAttribute(tangents, 4));
+    geometry.setAttribute('color', new BufferAttribute(colors, 4));
+    
+    if (uv0Size === 2) geometry.setAttribute('uv', new BufferAttribute(uvs, 2));
+    else if (uv0Size > 2) geometry.setAttribute('uv', new BufferAttribute(packedUvs, uv0Size));
+    
+    if (uv1Size > 0) geometry.setAttribute('uv1', new BufferAttribute(uv1s, uv1Size));
 
-				uvs.push( p1, 1 );
-				uvs.push( p2, 1 );
-				uvs.push( p2, 0 );
+    geometry.setIndex(new BufferAttribute(indices, 1));
 
-			}
+    geometry.setAttribute('a_position', geometry.getAttribute('position'));
+    geometry.setAttribute('a_normal', geometry.getAttribute('normal'));
+    geometry.setAttribute('a_color', geometry.getAttribute('color'));
+    geometry.setAttribute('a_texcoord0', geometry.getAttribute('uv'));
+    if (geometry.getAttribute('uv1')) geometry.setAttribute('a_texcoord1', geometry.getAttribute('uv1'));
+    if (geometry.getAttribute('tangent')) geometry.setAttribute('a_tangent', geometry.getAttribute('tangent'));
 
-		}
+    return geometry;
+}
 
-		this.setAttribute( 'position', new BufferAttribute( new Float32Array( vertices ), 4 ) );
-		this.setAttribute( 'color', new BufferAttribute( new Float32Array( colors ), 4 ) );
-		this.setAttribute( 'uv', new BufferAttribute( new Float32Array( uvs ), 2 ) );
+export class TiltLoader extends Loader {
+    constructor(manager) {
+        super(manager);
+        this.tiltShaderLoader = new TiltShaderLoader(manager);
+    }
 
-		this.setAttribute('a_position', this.getAttribute('position'));
-		this.setAttribute('a_color', this.getAttribute('color'));
-		this.setAttribute("a_texcoord0", this.getAttribute("uv"));
-		//this.setAttribute("_tb_unity_texcoord_0", this.getAttribute("uv"));
-	}
+    setBrushPath(path) {
+        if (path.slice(path.length - 1) !== '/') path += '/';
+        this.tiltShaderLoader.setPath(path);
+        return this;
+    }
 
+    load(url, onLoad, onProgress, onError) {
+        const scope = this;
+        const loader = new FileLoader(this.manager);
+        loader.setPath(this.path);
+        loader.setResponseType('arraybuffer');
+        loader.setWithCredentials(this.withCredentials);
+        loader.load(url, function (buffer) {
+            scope.parse(buffer).then(group => {
+                onLoad(group);
+            }).catch(err => {
+                if (onError) onError(err);
+                else console.error(err);
+                scope.manager.itemError(url);
+            });
+        }, onProgress, onError);
+    }
+
+    async parse(buffer) {
+        const group = new Group();
+        const zip = unzipSync(new Uint8Array(buffer.slice(16)));
+        const metadata = JSON.parse(strFromU8(zip['metadata.json']));
+        const strokes = parseSketchBinary(zip['data.sketch'].buffer);
+        const brushDatabase = await loadBrushDatabase();
+
+        group.userData.tiltMetadata = metadata;
+
+        const byBrush = {};
+        const globalPlaybackRange = { min: Infinity, max: -Infinity };
+        
+        for (const s of strokes) {
+            if (!byBrush[s.brush_index]) byBrush[s.brush_index] = [];
+            byBrush[s.brush_index].push(s);
+        }
+
+        const clock = new Clock();
+        
+        for (const brushIndexStr in byBrush) {
+            const guidOrName = metadata.BrushIndex[brushIndexStr];
+            const materialName = this.tiltShaderLoader.lookupMaterialName(guidOrName);
+            if (!materialName) continue;
+
+            if (materialName === "HyperGrid") {
+                for (const stroke of byBrush[brushIndexStr]) {
+                    if (stroke.controlPoints.length > 2) {
+                        const newCps = [stroke.controlPoints[0]];
+                        let lastPos = stroke.controlPoints[0].position;
+                        const spacing = 50.25; 
+                        for (let p = 1; p < stroke.controlPoints.length - 1; p++) {
+                            const cp = stroke.controlPoints[p];
+                            const dist = Math.hypot(
+                                cp.position[0] - lastPos[0],
+                                cp.position[1] - lastPos[1],
+                                cp.position[2] - lastPos[2]
+                            );
+                            if (dist >= spacing) {
+                                newCps.push(cp);
+                                lastPos = cp.position;
+                            }
+                        }
+                        newCps.push(stroke.controlPoints[stroke.controlPoints.length - 1]);
+                        stroke.controlPoints = newCps;
+                    }
+                }
+            }
+
+            const dbEntry = brushDatabase[guidOrName];
+
+            let family = dbEntry?.family || brushFamilyMap[materialName] || "ribbon";
+            let generatorClass = dbEntry?.generatorClass || brushGeneratorMap[materialName];
+
+            if (!generatorClass) {
+                if (family === "ribbon" || family === "emissive") generatorClass = "FlatGeometryBrush";
+                else if (family === "tube") generatorClass = "TubeBrush";
+            }
+
+            if (materialName === "Petal" || materialName === "Spikes") {
+                family = "tube";
+                generatorClass = "TubeBrush";
+            }
+            
+            const needsRealBackfaces = dbEntry?.geometryParams?.renderBackfaces !== undefined
+                ? dbEntry.geometryParams.renderBackfaces
+                : renderBackfacesMap[materialName] === true;
+
+            const defaultOpacityOverrides = {
+                "Electricity": {
+                    geometryParams: { ribbonOffsetInTexcoord1: true }
+                },
+                "Petal": {
+                    geometryParams: { tubeShapeModifier: 5 }
+                }
+            };
+
+            const baseOverride = defaultOpacityOverrides[materialName] || {};
+            const legacyOverride = {
+                ...baseOverride,
+                ...(brushGeometryOverrides[materialName] || {}),
+                geometryParams: {
+                    ...baseOverride.geometryParams,
+                    ...(brushGeometryOverrides[materialName]?.geometryParams || {})
+                }
+            };
+            
+            const options = {
+                generatorClass: legacyOverride.generatorClass || generatorClass,
+                pressureSizeRange: legacyOverride.pressureSizeRange || dbEntry?.pressureSizeRange,
+                pressureOpacityRange: legacyOverride.pressureOpacityRange || dbEntry?.pressureOpacityRange,
+                deterministicBirthTime: true,
+                geometryParams: {
+                    renderBackfaces: needsRealBackfaces,
+                    ...(dbEntry?.geometryParams || {}),
+                    ...(legacyOverride.geometryParams || {}) 
+                }
+            };
+
+            if (options.generatorClass === "GeniusParticlesBrush" && options.geometryParams.particleRate !== undefined) {
+                const particleMultipliers = {
+                    "Dots": 0.045, "Embers": 0.01, "Smoke": 0.01, 
+                    "Snow": 0.01, "Bubbles": 0.01, "Stars": 0.01     
+                };
+                const multiplier = particleMultipliers[materialName] !== undefined ? particleMultipliers[materialName] : 0.01;
+                options.geometryParams.particleRate *= multiplier; 
+            }
+
+            const arraysList = [];
+            const strokeTimeline = [];
+            let cumulativeIndexCount = 0;
+            
+            for (const stroke of byBrush[brushIndexStr]) {
+                if (stroke.controlPoints.length < 2) continue;
+                const arrays = generateBrushGeometry(stroke, family, options);
+
+                if (materialName === "Comet") {
+                    let maxU = 0;
+                    for (let i = 0; i < arrays.uvs.length; i += 2) if (arrays.uvs[i] > maxU) maxU = arrays.uvs[i];
+                    for (let i = 0; i < arrays.uvs.length; i += 2) arrays.uvs[i] = maxU - arrays.uvs[i];
+                }
+
+                arraysList.push(arrays);
+                cumulativeIndexCount += arrays.indices.length;
+                const lastCp = stroke.controlPoints[stroke.controlPoints.length - 1];
+                strokeTimeline.push({ indexEnd: cumulativeIndexCount, t: lastCp.timestampMs });
+                if (lastCp.timestampMs < globalPlaybackRange.min) globalPlaybackRange.min = lastCp.timestampMs;
+                if (lastCp.timestampMs > globalPlaybackRange.max) globalPlaybackRange.max = lastCp.timestampMs;
+            }
+
+            const geometry = createGeometryFromArrays(arraysList);
+
+            let material;
+            try {
+                material = await this.tiltShaderLoader.loadAsync(materialName);
+            } catch (err) {
+                continue;
+            }
+
+            if (material) {
+                const isAdditive = material.blending === 2 || material.blending === 5 || material.name.includes("Waveform") || material.name.includes("Chromatic");
+                
+                if (needsRealBackfaces && !isAdditive && materialName !== "Petal") {
+                    material.side = FrontSide; 
+                } else {
+                    material.side = DoubleSide; 
+                }
+
+                if (isAdditive) material.depthWrite = false;
+
+                if (material.uniforms && material.uniforms.u_A2CEnabled) {
+                    material.uniforms.u_A2CEnabled.value = 0.0;
+                    material.needsUpdate = true;
+                }
+
+                if (materialName === "Electricity" || guidOrName === "f6e85de3-6dcc-4e7f-87fd-cee8c3d25d51") {
+                    if (material.uniforms) {
+                        material.uniforms.u_isNewTiltExporter = { value: false };
+                        material.uniforms.u_ElectricityHasBakedDisplacement = { value: false };
+                    }
+                    material = createTiltBrushRenderMaterial(guidOrName, material, {}, { electricityMultipass: true });
+                }
+
+                if (materialName === "HyperGrid" && material.uniforms) {
+                    material.uniforms.u_isNewTiltExporter = { value: true };
+                    material.needsUpdate = true;
+                }
+            }
+
+            const mesh = new Mesh(geometry, material);
+
+            if (Array.isArray(material)) {
+                applyTiltBrushRenderGroups(geometry, geometry.getIndex().count, material);
+            }
+
+            mesh.userData.strokeTimeline = strokeTimeline;
+            mesh.onBeforeRender = (renderer, scene, camera, geo, mat) => {
+                if (mat.uniforms && mat.uniforms['u_time']) {
+                    const t = clock.getElapsedTime();
+                    mat.uniforms['u_time'].value.set(t / 20, t, t * 2, t * 3);
+                }
+                if (mat.uniforms && mat.uniforms['cameraPosition']) {
+                    mat.uniforms['cameraPosition'].value = camera.position;
+                }
+            };
+            group.add(mesh);
+
+            if (materialName === "Toon") {
+                const posAttr = geometry.getAttribute('position');
+                const normAttr = geometry.getAttribute('normal');
+                const outlineWidth = 0.05; 
+                const inflatedPositions = new Float32Array(posAttr.count * 3);
+                for (let i = 0; i < posAttr.count; i++) {
+                    inflatedPositions[i * 3 + 0] = posAttr.getX(i) + normAttr.getX(i) * outlineWidth;
+                    inflatedPositions[i * 3 + 1] = posAttr.getY(i) + normAttr.getY(i) * outlineWidth;
+                    inflatedPositions[i * 3 + 2] = posAttr.getZ(i) + normAttr.getZ(i) * outlineWidth;
+                }
+                const outlineGeometry = new BufferGeometry();
+                outlineGeometry.setAttribute('position', new BufferAttribute(inflatedPositions, 3));
+                outlineGeometry.setIndex(geometry.getIndex());
+
+                const outlineMaterial = new MeshBasicMaterial({
+                    color: 0x000000,
+                    side: BackSide,
+                    depthWrite: true,
+                    depthTest: true
+                });
+                const outlineMesh = new Mesh(outlineGeometry, outlineMaterial);
+                outlineMesh.userData.strokeTimeline = strokeTimeline; 
+                group.add(outlineMesh);
+            }
+        }
+        
+        if (globalPlaybackRange.max > globalPlaybackRange.min) {
+            group.userData.playbackRangeMs = globalPlaybackRange;
+        }
+
+        return group;
+    }
 }

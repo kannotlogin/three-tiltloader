@@ -405,7 +405,9 @@ function generateRibbonGeometry(
   const previousFlatForward: Vec3 = [0, 0, 0];
   const flatEdge: Vec3 = [0, 0, 0];
   let previousFlatSize = 0;
-  const flatHalfRights = usesFlatGeometrySmoothing
+  
+  // FIX: M11 brushes skip smoothing to prevent the first point from copying the second point's width.
+  const flatHalfRights = (usesFlatGeometrySmoothing && options.geometryParams?.m11Compatibility !== true)
     ? new Float32Array(pointCount * 3)
     : undefined;
 
@@ -431,6 +433,20 @@ function generateRibbonGeometry(
     let size =
       localBrushSize *
       getPressureSizeMultiplier(ribbonSmoothedPressures[index], pressureSizeMin);
+
+    if (options.generatorClass === "FlatGeometryBrush" && options.geometryParams?.m11Compatibility === true) {
+      const sectionLength = ribbonSectionLengths[index];
+      const progress = sectionLength > 1e-6 ? ribbonRunningLengths[index] / sectionLength : 0;
+      const sineTaper = Math.sin(progress * Math.PI);
+
+      // First half: squared for a sharp start. 
+      // Second half: standard sine wave for a clean taper.
+      if (progress < 0.5) {
+          size *= Math.pow(sineTaper, 2); 
+      } else {
+          size *= sineTaper;
+      }
+    }
 
     writeCentralDifferenceTangent(stroke, index, previousTangent, tangent);
     rotateByQuaternion(point.orientation, VEC_FORWARD, pointerForward);
@@ -536,8 +552,10 @@ function generateRibbonGeometry(
       : sectionLength > EPSILON
         ? runningLength / sectionLength
         : 0;
-    writeUv(uvs, leftVertex, [u, v0]);
-    writeUv(uvs, rightVertex, [u, v1]);
+    
+    writeUv(uvs, leftVertex, [u, v1]);
+    writeUv(uvs, rightVertex, [u, v0]);
+    
     if (hasVectorOffset) {
       const leftOffset = leftVertex * 3;
       const rightOffset = rightVertex * 3;
@@ -1304,27 +1322,38 @@ function applyQuadStripSectionOpacityFade(
   endSolid: number,
 ): void {
   let distanceFromLeadingEdge = 0;
+            
+  let totalSectionLength = 0;
+  for (let solid = firstSolid; solid < endSolid; solid += 1) {
+      totalSectionLength += getQuadStripSolidLength(out.positions, solid);
+  }
+          
   for (let solid = endSolid - 1; solid >= firstSolid; solid -= 1) {
-    const leadingAlpha = quantizeColorByte(
-      Math.min(1, distanceFromLeadingEdge / QUAD_STRIP_OPACITY_FADE_METERS),
-    );
-    distanceFromLeadingEdge += getQuadStripSolidLength(out.positions, solid);
-    const trailingAlpha =
-      solid === firstSolid
-        ? 0
-        : quantizeColorByte(
-            Math.min(
-              1,
-              distanceFromLeadingEdge / QUAD_STRIP_OPACITY_FADE_METERS,
-            ),
-          );
-    const vertex = solid * 6;
-    out.colors[vertex * 4 + 3] = trailingAlpha;
-    out.colors[(vertex + 2) * 4 + 3] = trailingAlpha;
-    out.colors[(vertex + 3) * 4 + 3] = trailingAlpha;
-    out.colors[(vertex + 1) * 4 + 3] = leadingAlpha;
-    out.colors[(vertex + 4) * 4 + 3] = leadingAlpha;
-    out.colors[(vertex + 5) * 4 + 3] = leadingAlpha;
+      const solidLength = getQuadStripSolidLength(out.positions, solid);
+              
+      const leadingAlphaEnd = Math.min(1, distanceFromLeadingEdge / QUAD_STRIP_OPACITY_FADE_METERS);
+      distanceFromLeadingEdge += solidLength;
+      const trailingAlphaEnd = Math.min(1, distanceFromLeadingEdge / QUAD_STRIP_OPACITY_FADE_METERS);
+
+      const distanceFromStartTrailing = totalSectionLength - distanceFromLeadingEdge;
+      const distanceFromStartLeading = distanceFromStartTrailing + solidLength;
+      const trailingAlphaStart = Math.min(1, distanceFromStartTrailing / QUAD_STRIP_OPACITY_FADE_METERS);
+      const leadingAlphaStart = Math.min(1, distanceFromStartLeading / QUAD_STRIP_OPACITY_FADE_METERS);
+
+      let trailingAlpha = quantizeColorByte(Math.min(trailingAlphaEnd, trailingAlphaStart));
+      let leadingAlpha = quantizeColorByte(Math.min(leadingAlphaEnd, leadingAlphaStart));
+              
+      if (solid === firstSolid) {
+          trailingAlpha = 0;
+      }
+
+      const vertex = solid * 6;
+      out.colors[vertex * 4 + 3] = trailingAlpha;
+      out.colors[(vertex + 2) * 4 + 3] = trailingAlpha;
+      out.colors[(vertex + 3) * 4 + 3] = trailingAlpha;
+      out.colors[(vertex + 1) * 4 + 3] = leadingAlpha;
+      out.colors[(vertex + 4) * 4 + 3] = leadingAlpha;
+      out.colors[(vertex + 5) * 4 + 3] = leadingAlpha;
   }
 }
 
@@ -1357,7 +1386,7 @@ function quantizeColorByte(value: number): number {
   return Math.floor(value * 255) / 255;
 }
 
-const QUAD_STRIP_OPACITY_FADE_METERS = 0.025;
+const QUAD_STRIP_OPACITY_FADE_METERS = 0.25; // Unity usesu: 0.025 * App.METERS_TO_UNITS (10).
 
 function averageQuadStripSolid(
   out: BrushGeometryArrays,
@@ -2325,7 +2354,7 @@ function generateHullGeometry(
 ): boolean {
   out.family = "hull";
   out.uv0Size = 3;
-  const points = createHullInputPoints(stroke);
+  const points = createHullInputPoints(stroke, options);
   const faces = createConvexHull(points);
   const faceted = options.geometryParams?.hullFaceted !== false;
   const doubleSided = options.geometryParams?.renderBackfaces === true;
@@ -2394,31 +2423,95 @@ function generateHullGeometry(
   return reallocated;
 }
 
-function createHullInputPoints(stroke: StrokeData): Vec3[] {
+function createHullInputPoints(stroke: StrokeData, options?: BrushGeometryOptions): Vec3[] {
   const points: Vec3[] = [];
   const seen = new Set<string>();
-  const halfWidth = getLocalBrushSize(stroke) / Math.sqrt(3);
-  const offsets: readonly Vec3[] = [
-    [-halfWidth, -halfWidth, -halfWidth],
-    [halfWidth, halfWidth, -halfWidth],
-    [halfWidth, -halfWidth, halfWidth],
-    [-halfWidth, halfWidth, halfWidth],
-  ];
-  for (const controlPoint of stroke.controlPoints) {
-    for (const offset of offsets) {
-      const point: Vec3 = [
-        controlPoint.position[0] + offset[0],
-        controlPoint.position[1] + offset[1],
-        controlPoint.position[2] + offset[2],
-      ];
-      const key = `${point[0].toPrecision(12)},${point[1].toPrecision(12)},${point[2].toPrecision(12)}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        points.push(point);
+  const localBrushSize = getLocalBrushSize(stroke);
+  const pressureSizeMin = options ? normalizePressureSizeMin(options.pressureSizeRange?.[0]) : 0.1;
+
+  const previousRight: Vec3 = [0, 0, 0];
+  const frameRight: Vec3 = [0, 0, 0];
+  const frameNormal: Vec3 = [0, 0, 0];
+  const pointerForward: Vec3 = [0, 0, 0];
+  const pointerUp: Vec3 = [0, 0, 0];
+  const tangent: Vec3 = [0, 0, 0];
+
+  for (let knotIndex = 0; knotIndex < stroke.controlPoints.length; knotIndex += 1) {
+      const controlPoint = stroke.controlPoints[knotIndex];
+      const center = controlPoint.position;
+
+      if (knotIndex === 0) {
+          tangent[0] = 0; tangent[1] = 0; tangent[2] = 1;
+      } else {
+          const prevPoint = stroke.controlPoints[knotIndex - 1];
+          tangent[0] = center[0] - prevPoint.position[0];
+          tangent[1] = center[1] - prevPoint.position[1];
+          tangent[2] = center[2] - prevPoint.position[2];
+          if (!normalizeInPlace(tangent)) {
+              tangent[0] = 0; tangent[1] = 0; tangent[2] = 1;
+          }
       }
-    }
+
+      rotateByQuaternion(controlPoint.orientation, VEC_FORWARD, pointerForward);
+      rotateByQuaternion(controlPoint.orientation, VEC_UP, pointerUp);
+      computeSurfaceFrame(previousRight, tangent, pointerForward, pointerUp, knotIndex === 0, frameRight, frameNormal);
+
+      previousRight[0] = frameRight[0];
+      previousRight[1] = frameRight[1];
+      previousRight[2] = frameRight[2];
+
+      if (knotIndex === 0) {
+          points.push([center[0], center[1], center[2]]);
+      } else {
+          const pressure = controlPoint.pressure;
+          const sizeMult = pressureSizeMin + (1 - pressureSizeMin) * Math.max(0, Math.min(1, pressure));
+          const radius = localBrushSize * sizeMult * 0.5;
+
+          let p: Vec3 = [tangent[0] * radius, tangent[1] * radius, tangent[2] * radius];
+          points.push([center[0] + p[0], center[1] + p[1], center[2] + p[2]]);
+
+          const halfPhi = (45 * Math.PI / 180) / 2;
+          const sPhi = Math.sin(halfPhi);
+          const qPhi: Quat = [
+              frameRight[0] * sPhi,
+              frameRight[1] * sPhi,
+              frameRight[2] * sPhi,
+              Math.cos(halfPhi)
+          ];
+
+          const halfTheta = (90 * Math.PI / 180) / 2;
+          const sTheta = Math.sin(halfTheta);
+          const qTheta: Quat = [
+              tangent[0] * sTheta,
+              tangent[1] * sTheta,
+              tangent[2] * sTheta,
+              Math.cos(halfTheta)
+          ];
+
+          for (let iRing = 0; iRing < 2; ++iRing) {
+              const tmp: Vec3 = [0, 0, 0];
+              rotateByQuaternion(qPhi, p, tmp);
+              p[0] = tmp[0]; p[1] = tmp[1]; p[2] = tmp[2];
+
+              for (let i = 0; i < 4; ++i) {
+                  points.push([center[0] + p[0], center[1] + p[1], center[2] + p[2]]);
+                  rotateByQuaternion(qTheta, p, tmp);
+                  p[0] = tmp[0]; p[1] = tmp[1]; p[2] = tmp[2];
+              }
+          }
+      }
   }
-  return points;
+
+  const uniquePoints: Vec3[] = [];
+  for (let i = 0; i < points.length; i++) {
+      const pt = points[i];
+      const key = `${pt[0].toPrecision(12)},${pt[1].toPrecision(12)},${pt[2].toPrecision(12)}`;
+      if (!seen.has(key)) {
+          seen.add(key);
+          uniquePoints.push(pt);
+      }
+  }
+  return uniquePoints;
 }
 
 function createConvexHull(points: Vec3[]): HullFace[] {
@@ -2850,7 +2943,14 @@ function generateTubeGeometry(
     pointCount,
   );
   let runningDistance = 0;
+  
   let u = random01;
+  if (options.geometryParams?.lightwireHack) {
+      const startRadius = localBrushSize * getPressureSizeMultiplier(tubeSmoothedPressures[0], pressureSizeMin) * 0.5;
+      const circ = Math.max(2 * Math.PI * startRadius, EPSILON);
+      const totalU = (totalStrokeLength * tileRate) / circ;
+      u = 0.53 - totalU;
+  }
 
   // Frame state: right/up transported along the stroke by the tangent-to-
   // tangent rotation (MathUtils.ComputeMinimalRotationFrame), bootstrapped
@@ -2982,7 +3082,20 @@ function generateTubeGeometry(
           frameUp,
         );
         const sectionRandom01 = statelessRandom01(stroke.seed, pointIndex);
+        
         u = sectionRandom01;
+        if (options.geometryParams?.lightwireHack) {
+            let remainingLength = 0;
+            for(let i = pointIndex + 1; i < pointCount; i++) {
+                if (tubeBreakBefore[i] === 1) break;
+                remainingLength += distanceBetweenScratchPoints(geometrySmoothedPositions, i - 1, i);
+            }
+            const startRadius = localBrushSize * getPressureSizeMultiplier(tubeSmoothedPressures[pointIndex], pressureSizeMin) * 0.5;
+            const circ = Math.max(2 * Math.PI * startRadius, EPSILON);
+            const totalU = (remainingLength * tileRate) / circ;
+            u = 0.53 - totalU;
+        }
+
         atlasRow = Math.floor(sectionRandom01 * 3331) % atlasRows;
         v0 = atlasRow / atlasRows;
         v1 = (atlasRow + 1) / atlasRows;
@@ -4338,8 +4451,9 @@ function getTubeShapeScale(
         partialProgress,
       );
     case 2:
-    case 5:
       return Math.abs(Math.sin(progress * Math.PI));
+    case 5:
+      return (Math.abs(Math.sin(progress * Math.PI)) * 0.85) + (0.15 * (1.0 - progress));
     case 3:
       return Math.sin(progress * 1.5 + 1.55);
     case 4:
@@ -4635,19 +4749,15 @@ function prepareRibbonSmoothedPressures(
   pressures[0] = isM11FlatGeometry
     ? 0
     : clamp01(stroke.controlPoints[0].pressure);
-  const windowMeters =
-    isM11FlatGeometry
-      ? 0.1
-      : 0.2;
-  for (let index = 1; index < pointCount; index += 1) {
-    const distance = distanceBetweenControlPoints(
-      stroke.controlPoints[index - 1],
-      stroke.controlPoints[index],
-    );
-    const retained = Math.pow(0.1, distance / windowMeters);
-    pressures[index] =
-      retained * pressures[index - 1] +
-      (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
+  
+  for(let index = 1; index < pointCount; index += 1){
+      if (isM11FlatGeometry) {
+          const distance = distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
+          const retained = Math.pow(0.1, distance / 1.0);
+          pressures[index] = retained * pressures[index - 1] + (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
+      } else {
+          pressures[index] = clamp01(stroke.controlPoints[index].pressure);
+      }
   }
 }
 
@@ -4663,18 +4773,15 @@ function prepareTubeSmoothedPressures(
   }
   const isM11 = options.geometryParams?.m11Compatibility === true;
   pressures[0] = isM11 ? 0 : clamp01(stroke.controlPoints[0].pressure);
-  const windowMeters = isM11
-    ? 0.1
-    : 0.2;
-  for (let index = 1; index < pointCount; index += 1) {
-    const distance = distanceBetweenControlPoints(
-      stroke.controlPoints[index - 1],
-      stroke.controlPoints[index],
-    );
-    const retained = Math.pow(0.1, distance / windowMeters);
-    pressures[index] =
-      retained * pressures[index - 1] +
-      (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
+
+  for(let index = 1; index < pointCount; index += 1){
+      if (isM11) {
+          const distance = distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
+          const retained = Math.pow(0.1, distance / 1.0);
+          pressures[index] = retained * pressures[index - 1] + (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
+      } else {
+          pressures[index] = clamp01(stroke.controlPoints[index].pressure);
+      }
   }
 }
 
@@ -4690,18 +4797,15 @@ function prepareGeometrySmoothedPressures(
   }
   const isM11 = options.geometryParams?.m11Compatibility === true;
   pressures[0] = isM11 ? 0 : clamp01(stroke.controlPoints[0].pressure);
-  const windowMeters = isM11
-    ? 0.1
-    : 0.2;
-  for (let index = 1; index < pointCount; index += 1) {
-    const distance = distanceBetweenControlPoints(
-      stroke.controlPoints[index - 1],
-      stroke.controlPoints[index],
-    );
-    const retained = Math.pow(0.1, distance / windowMeters);
-    pressures[index] =
-      retained * pressures[index - 1] +
-      (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
+  
+  for(let index = 1; index < pointCount; index += 1){
+      if (isM11) {
+          const distance = distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
+          const retained = Math.pow(0.1, distance / 1.0);
+          pressures[index] = retained * pressures[index - 1] + (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
+      } else {
+          pressures[index] = clamp01(stroke.controlPoints[index].pressure);
+      }
   }
 }
 
@@ -5499,10 +5603,7 @@ function writeColorFromAlpha(
 function writeUv(target: Float32Array, vertex: number, value: [number, number]): void {
   const offset = vertex * 2;
   target[offset] = value[0];
-  // Open Brush authors UVs in Unity's bottom-left convention. Its glTF
-  // exporter flips Y, and the extracted browser shaders/textures consume
-  // those exported coordinates with texture.flipY disabled. Generated strokes
-  // must cross the same boundary or they sample a mirrored atlas/bump field.
+
   target[offset + 1] = 1 - value[1];
 }
 
