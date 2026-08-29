@@ -2,6 +2,17 @@ const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     let urlStr = args[0] instanceof Request ? args[0].url : String(args[0]);
 
+    if (urlStr.includes('sketch.bin')) {
+        args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/mother/sketch.bin';
+        urlStr = args[0];
+    } else if (urlStr.includes('tmp1352bc07.bin')) {
+        args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/The%20Upside%20Down/tmp1352bc07.bin';
+        urlStr = args[0];
+    } else if (urlStr.includes('milkyway.psd')) {
+        args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/src/data/Cubemaps/milkyway.psd';
+        urlStr = args[0];
+    }
+
     if (urlStr.length > 500 && (urlStr.includes('void%20main') || urlStr.includes('%20a_position'))) {
         let decoded = urlStr;
         try { decoded = decodeURIComponent(urlStr); } catch(e) {}
