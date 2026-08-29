@@ -1,35 +1,13 @@
-import {FileLoader as $rINUR$FileLoader, Group as $rINUR$Group, Clock as $rINUR$Clock, Mesh as $rINUR$Mesh, Vector4 as $rINUR$Vector4, Loader as $rINUR$Loader, Vector3 as $rINUR$Vector3, Quaternion as $rINUR$Quaternion, BufferAttribute as $rINUR$BufferAttribute, BufferGeometry as $rINUR$BufferGeometry, Box3 as $rINUR$Box3} from "three";
+import {BufferGeometry as $rINUR$BufferGeometry, BufferAttribute as $rINUR$BufferAttribute, FileLoader as $rINUR$FileLoader, Group as $rINUR$Group, Clock as $rINUR$Clock, FrontSide as $rINUR$FrontSide, DoubleSide as $rINUR$DoubleSide, Mesh as $rINUR$Mesh, MeshBasicMaterial as $rINUR$MeshBasicMaterial, BackSide as $rINUR$BackSide, Loader as $rINUR$Loader, Box3 as $rINUR$Box3, Vector3 as $rINUR$Vector3, Vector4 as $rINUR$Vector4, Color as $rINUR$Color, Euler as $rINUR$Euler, MathUtils as $rINUR$MathUtils, FogExp2 as $rINUR$FogExp2, Quaternion as $rINUR$Quaternion, CanvasTexture as $rINUR$CanvasTexture, SRGBColorSpace as $rINUR$SRGBColorSpace, EquirectangularReflectionMapping as $rINUR$EquirectangularReflectionMapping, TextureLoader as $rINUR$TextureLoader} from "three";
 import {unzipSync as $rINUR$unzipSync, strFromU8 as $rINUR$strFromU8} from "three/examples/jsm/libs/fflate.module.js";
-import {TiltShaderLoader as $rINUR$TiltShaderLoader} from "three-icosa";
-
-// Adapted from initial TiltLoader implementation in three.js r128
-// https://github.com/mrdoob/three.js/blob/r128/examples/jsm/loaders/TiltLoader.js
+import {TiltShaderLoader as $rINUR$TiltShaderLoader, createTiltBrushRenderMaterial as $rINUR$createTiltBrushRenderMaterial, applyTiltBrushRenderGroups as $rINUR$applyTiltBrushRenderGroups} from "three-icosa";
+import {EXRLoader as $rINUR$EXRLoader} from "three/examples/jsm/loaders/EXRLoader.js";
 
 
-
-
-function $8da93982032879e2$var$validateAttribute(name, attribute) {
-    if (!ArrayBuffer.isView(attribute.array) || attribute.array instanceof DataView) throw new TypeError(`Geometry attribute "${name}" must use a typed array.`);
-    if (!Number.isInteger(attribute.itemSize) || attribute.itemSize < 1) throw new RangeError(`Geometry attribute "${name}" must have a positive integer itemSize.`);
-    if (attribute.array.length % attribute.itemSize !== 0) throw new RangeError(`Geometry attribute "${name}" length must be divisible by itemSize.`);
+function $parcel$export(e, n, v, s) {
+  Object.defineProperty(e, n, {get: v, set: s, enumerable: true, configurable: true});
 }
-function $8da93982032879e2$export$c58992c2d0e506a0(result, target = new (0, $rINUR$BufferGeometry)()) {
-    if (!result || typeof result !== "object" || !result.attributes) throw new TypeError("Geometry result must contain an attributes object.");
-    for (const [name, attribute] of Object.entries(result.attributes))$8da93982032879e2$var$validateAttribute(name, attribute);
-    if (result.index !== undefined && !(result.index instanceof Uint16Array || result.index instanceof Uint32Array)) throw new TypeError("Geometry index must be a Uint16Array or Uint32Array.");
-    for (const name of Object.keys(target.attributes))target.deleteAttribute(name);
-    for (const [name, attribute] of Object.entries(result.attributes))target.setAttribute(name, new (0, $rINUR$BufferAttribute)(attribute.array, attribute.itemSize, attribute.normalized === true));
-    if (result.index !== undefined) target.setIndex(new (0, $rINUR$BufferAttribute)(result.index, 1));
-    else target.setIndex(null);
-    target.clearGroups();
-    for (const group of result.groups || [])target.addGroup(group.start, group.count, group.materialIndex || 0);
-    if (result.drawRange) target.setDrawRange(result.drawRange.start, result.drawRange.count);
-    else target.setDrawRange(0, Infinity);
-    if (result.bounds) target.boundingBox = new (0, $rINUR$Box3)(new (0, $rINUR$Vector3)().fromArray(result.bounds.min), new (0, $rINUR$Vector3)().fromArray(result.bounds.max));
-    else target.boundingBox = null;
-    target.boundingSphere = null;
-    return target;
-}
+
 
 
 const $6fafcf15f6b61d60$var$DEFAULT_PRESSURE_SIZE_MIN = 0.1;
@@ -282,7 +260,8 @@ function $6fafcf15f6b61d60$var$generateRibbonGeometry(stroke, family, options, o
         0
     ];
     let previousFlatSize = 0;
-    const flatHalfRights = usesFlatGeometrySmoothing ? new Float32Array(pointCount * 3) : undefined;
+    // FIX: M11 brushes skip smoothing to prevent the first point from copying the second point's width.
+    const flatHalfRights = usesFlatGeometrySmoothing && options.geometryParams?.m11Compatibility !== true ? new Float32Array(pointCount * 3) : undefined;
     for(let index = 0; index < renderPointCount; index += 1){
         const point = stroke.controlPoints[index];
         const previousPoint = stroke.controlPoints[Math.max(0, index - 1)];
@@ -299,6 +278,15 @@ function $6fafcf15f6b61d60$var$generateRibbonGeometry(stroke, family, options, o
             v1 = (atlasRow + 1) / atlasRows;
         }
         let size = localBrushSize * $6fafcf15f6b61d60$var$getPressureSizeMultiplier(ribbonSmoothedPressures[index], pressureSizeMin);
+        if (options.generatorClass === "FlatGeometryBrush" && options.geometryParams?.m11Compatibility === true) {
+            const sectionLength = ribbonSectionLengths[index];
+            const progress = sectionLength > 1e-6 ? ribbonRunningLengths[index] / sectionLength : 0;
+            const sineTaper = Math.sin(progress * Math.PI);
+            // First half: squared for a sharp start. 
+            // Second half: standard sine wave for a clean taper.
+            if (progress < 0.5) size *= Math.pow(sineTaper, 2);
+            else size *= sineTaper;
+        }
         $6fafcf15f6b61d60$var$writeCentralDifferenceTangent(stroke, index, previousTangent, tangent);
         $6fafcf15f6b61d60$var$rotateByQuaternion(point.orientation, $6fafcf15f6b61d60$var$VEC_FORWARD, pointerForward);
         $6fafcf15f6b61d60$var$rotateByQuaternion(point.orientation, $6fafcf15f6b61d60$var$VEC_UP, pointerUp);
@@ -369,11 +357,11 @@ function $6fafcf15f6b61d60$var$generateRibbonGeometry(stroke, family, options, o
         const u = usesDistanceUvs ? sectionRandom + runningLength / Math.max(localBrushSize, $6fafcf15f6b61d60$var$EPSILON) * tileRate : sectionLength > $6fafcf15f6b61d60$var$EPSILON ? runningLength / sectionLength : 0;
         $6fafcf15f6b61d60$var$writeUv(uvs, leftVertex, [
             u,
-            v0
+            v1
         ]);
         $6fafcf15f6b61d60$var$writeUv(uvs, rightVertex, [
             u,
-            v1
+            v0
         ]);
         if (hasVectorOffset) {
             const leftOffset = leftVertex * 3;
@@ -849,10 +837,20 @@ function $6fafcf15f6b61d60$var$applyQuadStripDistanceOpacityFade(out, breakBefor
 }
 function $6fafcf15f6b61d60$var$applyQuadStripSectionOpacityFade(out, firstSolid, endSolid) {
     let distanceFromLeadingEdge = 0;
+    let totalSectionLength = 0;
+    for(let solid = firstSolid; solid < endSolid; solid += 1)totalSectionLength += $6fafcf15f6b61d60$var$getQuadStripSolidLength(out.positions, solid);
     for(let solid = endSolid - 1; solid >= firstSolid; solid -= 1){
-        const leadingAlpha = $6fafcf15f6b61d60$var$quantizeColorByte(Math.min(1, distanceFromLeadingEdge / $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS));
-        distanceFromLeadingEdge += $6fafcf15f6b61d60$var$getQuadStripSolidLength(out.positions, solid);
-        const trailingAlpha = solid === firstSolid ? 0 : $6fafcf15f6b61d60$var$quantizeColorByte(Math.min(1, distanceFromLeadingEdge / $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS));
+        const solidLength = $6fafcf15f6b61d60$var$getQuadStripSolidLength(out.positions, solid);
+        const leadingAlphaEnd = Math.min(1, distanceFromLeadingEdge / $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS);
+        distanceFromLeadingEdge += solidLength;
+        const trailingAlphaEnd = Math.min(1, distanceFromLeadingEdge / $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS);
+        const distanceFromStartTrailing = totalSectionLength - distanceFromLeadingEdge;
+        const distanceFromStartLeading = distanceFromStartTrailing + solidLength;
+        const trailingAlphaStart = Math.min(1, distanceFromStartTrailing / $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS);
+        const leadingAlphaStart = Math.min(1, distanceFromStartLeading / $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS);
+        let trailingAlpha = $6fafcf15f6b61d60$var$quantizeColorByte(Math.min(trailingAlphaEnd, trailingAlphaStart));
+        let leadingAlpha = $6fafcf15f6b61d60$var$quantizeColorByte(Math.min(leadingAlphaEnd, leadingAlphaStart));
+        if (solid === firstSolid) trailingAlpha = 0;
         const vertex = solid * 6;
         out.colors[vertex * 4 + 3] = trailingAlpha;
         out.colors[(vertex + 2) * 4 + 3] = trailingAlpha;
@@ -874,7 +872,7 @@ function $6fafcf15f6b61d60$var$distanceBetweenPositionVertices(positions, firstV
 function $6fafcf15f6b61d60$var$quantizeColorByte(value) {
     return Math.floor(value * 255) / 255;
 }
-const $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS = 0.025;
+const $6fafcf15f6b61d60$var$QUAD_STRIP_OPACITY_FADE_METERS = 0.25; // Unity usesu: 0.025 * App.METERS_TO_UNITS (10).
 function $6fafcf15f6b61d60$var$averageQuadStripSolid(out, backSolid, middleSolid, frontSolid) {
     const backVertex = backSolid * 6;
     const middleVertex = middleSolid * 6;
@@ -1641,7 +1639,7 @@ function $6fafcf15f6b61d60$var$writeConcaveHullVertex(out, vertex, position, nor
 function $6fafcf15f6b61d60$var$generateHullGeometry(stroke, options, out) {
     out.family = "hull";
     out.uv0Size = 3;
-    const points = $6fafcf15f6b61d60$var$createHullInputPoints(stroke);
+    const points = $6fafcf15f6b61d60$var$createHullInputPoints(stroke, options);
     const faces = $6fafcf15f6b61d60$var$createConvexHull(points);
     const faceted = options.geometryParams?.hullFaceted !== false;
     const doubleSided = options.geometryParams?.renderBackfaces === true;
@@ -1703,45 +1701,134 @@ function $6fafcf15f6b61d60$var$generateHullGeometry(stroke, options, out) {
     out.indexCount = indexCount;
     return reallocated;
 }
-function $6fafcf15f6b61d60$var$createHullInputPoints(stroke) {
+function $6fafcf15f6b61d60$var$createHullInputPoints(stroke, options) {
     const points = [];
     const seen = new Set();
-    const halfWidth = $6fafcf15f6b61d60$var$getLocalBrushSize(stroke) / Math.sqrt(3);
-    const offsets = [
-        [
-            -halfWidth,
-            -halfWidth,
-            -halfWidth
-        ],
-        [
-            halfWidth,
-            halfWidth,
-            -halfWidth
-        ],
-        [
-            halfWidth,
-            -halfWidth,
-            halfWidth
-        ],
-        [
-            -halfWidth,
-            halfWidth,
-            halfWidth
-        ]
+    const localBrushSize = $6fafcf15f6b61d60$var$getLocalBrushSize(stroke);
+    const pressureSizeMin = options ? $6fafcf15f6b61d60$var$normalizePressureSizeMin(options.pressureSizeRange?.[0]) : 0.1;
+    const previousRight = [
+        0,
+        0,
+        0
     ];
-    for (const controlPoint of stroke.controlPoints)for (const offset of offsets){
-        const point = [
-            controlPoint.position[0] + offset[0],
-            controlPoint.position[1] + offset[1],
-            controlPoint.position[2] + offset[2]
-        ];
-        const key = `${point[0].toPrecision(12)},${point[1].toPrecision(12)},${point[2].toPrecision(12)}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            points.push(point);
+    const frameRight = [
+        0,
+        0,
+        0
+    ];
+    const frameNormal = [
+        0,
+        0,
+        0
+    ];
+    const pointerForward = [
+        0,
+        0,
+        0
+    ];
+    const pointerUp = [
+        0,
+        0,
+        0
+    ];
+    const tangent = [
+        0,
+        0,
+        0
+    ];
+    for(let knotIndex = 0; knotIndex < stroke.controlPoints.length; knotIndex += 1){
+        const controlPoint = stroke.controlPoints[knotIndex];
+        const center = controlPoint.position;
+        if (knotIndex === 0) {
+            tangent[0] = 0;
+            tangent[1] = 0;
+            tangent[2] = 1;
+        } else {
+            const prevPoint = stroke.controlPoints[knotIndex - 1];
+            tangent[0] = center[0] - prevPoint.position[0];
+            tangent[1] = center[1] - prevPoint.position[1];
+            tangent[2] = center[2] - prevPoint.position[2];
+            if (!$6fafcf15f6b61d60$var$normalizeInPlace(tangent)) {
+                tangent[0] = 0;
+                tangent[1] = 0;
+                tangent[2] = 1;
+            }
+        }
+        $6fafcf15f6b61d60$var$rotateByQuaternion(controlPoint.orientation, $6fafcf15f6b61d60$var$VEC_FORWARD, pointerForward);
+        $6fafcf15f6b61d60$var$rotateByQuaternion(controlPoint.orientation, $6fafcf15f6b61d60$var$VEC_UP, pointerUp);
+        $6fafcf15f6b61d60$var$computeSurfaceFrame(previousRight, tangent, pointerForward, pointerUp, knotIndex === 0, frameRight, frameNormal);
+        previousRight[0] = frameRight[0];
+        previousRight[1] = frameRight[1];
+        previousRight[2] = frameRight[2];
+        if (knotIndex === 0) points.push([
+            center[0],
+            center[1],
+            center[2]
+        ]);
+        else {
+            const pressure = controlPoint.pressure;
+            const sizeMult = pressureSizeMin + (1 - pressureSizeMin) * Math.max(0, Math.min(1, pressure));
+            const radius = localBrushSize * sizeMult * 0.5;
+            let p = [
+                tangent[0] * radius,
+                tangent[1] * radius,
+                tangent[2] * radius
+            ];
+            points.push([
+                center[0] + p[0],
+                center[1] + p[1],
+                center[2] + p[2]
+            ]);
+            const halfPhi = 45 * Math.PI / 180 / 2;
+            const sPhi = Math.sin(halfPhi);
+            const qPhi = [
+                frameRight[0] * sPhi,
+                frameRight[1] * sPhi,
+                frameRight[2] * sPhi,
+                Math.cos(halfPhi)
+            ];
+            const halfTheta = 90 * Math.PI / 180 / 2;
+            const sTheta = Math.sin(halfTheta);
+            const qTheta = [
+                tangent[0] * sTheta,
+                tangent[1] * sTheta,
+                tangent[2] * sTheta,
+                Math.cos(halfTheta)
+            ];
+            for(let iRing = 0; iRing < 2; ++iRing){
+                const tmp = [
+                    0,
+                    0,
+                    0
+                ];
+                $6fafcf15f6b61d60$var$rotateByQuaternion(qPhi, p, tmp);
+                p[0] = tmp[0];
+                p[1] = tmp[1];
+                p[2] = tmp[2];
+                for(let i = 0; i < 4; ++i){
+                    points.push([
+                        center[0] + p[0],
+                        center[1] + p[1],
+                        center[2] + p[2]
+                    ]);
+                    $6fafcf15f6b61d60$var$rotateByQuaternion(qTheta, p, tmp);
+                    p[0] = tmp[0];
+                    p[1] = tmp[1];
+                    p[2] = tmp[2];
+                }
+            }
         }
     }
-    return points;
+    const uniquePoints = [];
+    for(let i = 0; i < points.length; i++){
+        const pt = points[i];
+        const key = `${pt[0].toPrecision(12)},${pt[1].toPrecision(12)},${pt[2].toPrecision(12)}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniquePoints.push(pt);
+        }
+    }
+    return uniquePoints;
 }
 function $6fafcf15f6b61d60$var$createConvexHull(points) {
     if (points.length < 4) return [];
@@ -2094,6 +2181,12 @@ function $6fafcf15f6b61d60$var$generateTubeGeometry(stroke, options, out) {
     const totalStrokeLength = $6fafcf15f6b61d60$var$measureScratchPathLength(geometrySmoothedPositions, pointCount);
     let runningDistance = 0;
     let u = random01;
+    if (options.geometryParams?.lightwireHack) {
+        const startRadius = localBrushSize * $6fafcf15f6b61d60$var$getPressureSizeMultiplier(tubeSmoothedPressures[0], pressureSizeMin) * 0.5;
+        const circ = Math.max(2 * Math.PI * startRadius, $6fafcf15f6b61d60$var$EPSILON);
+        const totalU = totalStrokeLength * tileRate / circ;
+        u = 0.53 - totalU;
+    }
     // Frame state: right/up transported along the stroke by the tangent-to-
     // tangent rotation (MathUtils.ComputeMinimalRotationFrame), bootstrapped
     // from the pointer orientation on the first knot.
@@ -2190,6 +2283,17 @@ function $6fafcf15f6b61d60$var$generateTubeGeometry(stroke, options, out) {
                 $6fafcf15f6b61d60$var$initializeTubeFrame(point.orientation, tangent, bootstrapUp, frameRight, frameUp);
                 const sectionRandom01 = $6fafcf15f6b61d60$var$statelessRandom01(stroke.seed, pointIndex);
                 u = sectionRandom01;
+                if (options.geometryParams?.lightwireHack) {
+                    let remainingLength = 0;
+                    for(let i = pointIndex + 1; i < pointCount; i++){
+                        if (tubeBreakBefore[i] === 1) break;
+                        remainingLength += $6fafcf15f6b61d60$var$distanceBetweenScratchPoints(geometrySmoothedPositions, i - 1, i);
+                    }
+                    const startRadius = localBrushSize * $6fafcf15f6b61d60$var$getPressureSizeMultiplier(tubeSmoothedPressures[pointIndex], pressureSizeMin) * 0.5;
+                    const circ = Math.max(2 * Math.PI * startRadius, $6fafcf15f6b61d60$var$EPSILON);
+                    const totalU = remainingLength * tileRate / circ;
+                    u = 0.53 - totalU;
+                }
                 atlasRow = Math.floor(sectionRandom01 * 3331) % atlasRows;
                 v0 = atlasRow / atlasRows;
                 v1 = (atlasRow + 1) / atlasRows;
@@ -3019,8 +3123,9 @@ function $6fafcf15f6b61d60$var$getTubeShapeScale(modifier, progress, pointIndex,
         case 1:
             return $6fafcf15f6b61d60$var$getLoftedTubeScale(pointIndex, pointCount, partialProgress);
         case 2:
-        case 5:
             return Math.abs(Math.sin(progress * Math.PI));
+        case 5:
+            return Math.abs(Math.sin(progress * Math.PI)) * 0.85 + 0.15 * (1.0 - progress);
         case 3:
             return Math.sin(progress * 1.5 + 1.55);
         case 4:
@@ -3213,12 +3318,11 @@ function $6fafcf15f6b61d60$var$prepareRibbonSmoothedPressures(stroke, options, o
     if (pointCount === 0) return;
     const isM11FlatGeometry = options.generatorClass === "FlatGeometryBrush" && options.geometryParams?.m11Compatibility === true;
     pressures[0] = isM11FlatGeometry ? 0 : $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[0].pressure);
-    const windowMeters = isM11FlatGeometry ? 0.1 : 0.2;
-    for(let index = 1; index < pointCount; index += 1){
+    for(let index = 1; index < pointCount; index += 1)if (isM11FlatGeometry) {
         const distance = $6fafcf15f6b61d60$var$distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-        const retained = Math.pow(0.1, distance / windowMeters);
+        const retained = Math.pow(0.1, distance / 1.0);
         pressures[index] = retained * pressures[index - 1] + (1 - retained) * $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
-    }
+    } else pressures[index] = $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
 }
 function $6fafcf15f6b61d60$var$prepareTubeSmoothedPressures(stroke, options, out) {
     const pointCount = stroke.controlPoints.length;
@@ -3226,12 +3330,11 @@ function $6fafcf15f6b61d60$var$prepareTubeSmoothedPressures(stroke, options, out
     if (pointCount === 0) return;
     const isM11 = options.geometryParams?.m11Compatibility === true;
     pressures[0] = isM11 ? 0 : $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[0].pressure);
-    const windowMeters = isM11 ? 0.1 : 0.2;
-    for(let index = 1; index < pointCount; index += 1){
+    for(let index = 1; index < pointCount; index += 1)if (isM11) {
         const distance = $6fafcf15f6b61d60$var$distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-        const retained = Math.pow(0.1, distance / windowMeters);
+        const retained = Math.pow(0.1, distance / 1.0);
         pressures[index] = retained * pressures[index - 1] + (1 - retained) * $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
-    }
+    } else pressures[index] = $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
 }
 function $6fafcf15f6b61d60$var$prepareGeometrySmoothedPressures(stroke, options, out) {
     const pointCount = stroke.controlPoints.length;
@@ -3239,12 +3342,11 @@ function $6fafcf15f6b61d60$var$prepareGeometrySmoothedPressures(stroke, options,
     if (pointCount === 0) return;
     const isM11 = options.geometryParams?.m11Compatibility === true;
     pressures[0] = isM11 ? 0 : $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[0].pressure);
-    const windowMeters = isM11 ? 0.1 : 0.2;
-    for(let index = 1; index < pointCount; index += 1){
+    for(let index = 1; index < pointCount; index += 1)if (isM11) {
         const distance = $6fafcf15f6b61d60$var$distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-        const retained = Math.pow(0.1, distance / windowMeters);
+        const retained = Math.pow(0.1, distance / 1.0);
         pressures[index] = retained * pressures[index - 1] + (1 - retained) * $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
-    }
+    } else pressures[index] = $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
 }
 function $6fafcf15f6b61d60$var$prepareGeometrySmoothedPositions(stroke, out) {
     const pointCount = stroke.controlPoints.length;
@@ -3703,10 +3805,6 @@ function $6fafcf15f6b61d60$var$writeColorFromAlpha(target, vertex, value, alpha)
 function $6fafcf15f6b61d60$var$writeUv(target, vertex, value) {
     const offset = vertex * 2;
     target[offset] = value[0];
-    // Open Brush authors UVs in Unity's bottom-left convention. Its glTF
-    // exporter flips Y, and the extracted browser shaders/textures consume
-    // those exported coordinates with texture.flipY disabled. Generated strokes
-    // must cross the same boundary or they sample a mirrored atlas/bump field.
     target[offset + 1] = 1 - value[1];
 }
 function $6fafcf15f6b61d60$var$writePackedUv(target, vertex, u, v, radius) {
@@ -3749,187 +3847,693 @@ function $6fafcf15f6b61d60$var$includeBounds(bounds, positions, vertex) {
 }
 
 
+
+function $8da93982032879e2$var$validateAttribute(name, attribute) {
+    if (!ArrayBuffer.isView(attribute.array) || attribute.array instanceof DataView) throw new TypeError(`Geometry attribute "${name}" must use a typed array.`);
+    if (!Number.isInteger(attribute.itemSize) || attribute.itemSize < 1) throw new RangeError(`Geometry attribute "${name}" must have a positive integer itemSize.`);
+    if (attribute.array.length % attribute.itemSize !== 0) throw new RangeError(`Geometry attribute "${name}" length must be divisible by itemSize.`);
+}
+function $8da93982032879e2$export$c58992c2d0e506a0(result, target = new (0, $rINUR$BufferGeometry)()) {
+    if (!result || typeof result !== 'object' || !result.attributes) throw new TypeError('Geometry result must contain an attributes object.');
+    for (const [name, attribute] of Object.entries(result.attributes))$8da93982032879e2$var$validateAttribute(name, attribute);
+    if (result.index !== undefined && !(result.index instanceof Uint16Array || result.index instanceof Uint32Array)) throw new TypeError('Geometry index must be a Uint16Array or Uint32Array.');
+    for (const name of Object.keys(target.attributes))target.deleteAttribute(name);
+    for (const [name, attribute] of Object.entries(result.attributes))target.setAttribute(name, new (0, $rINUR$BufferAttribute)(attribute.array, attribute.itemSize, attribute.normalized === true));
+    if (result.index !== undefined) target.setIndex(new (0, $rINUR$BufferAttribute)(result.index, 1));
+    else target.setIndex(null);
+    target.clearGroups();
+    for (const group of result.groups || [])target.addGroup(group.start, group.count, group.materialIndex || 0);
+    if (result.drawRange) target.setDrawRange(result.drawRange.start, result.drawRange.count);
+    else target.setDrawRange(0, Infinity);
+    if (result.bounds) target.boundingBox = new (0, $rINUR$Box3)(new (0, $rINUR$Vector3)().fromArray(result.bounds.min), new (0, $rINUR$Vector3)().fromArray(result.bounds.max));
+    else target.boundingBox = null;
+    target.boundingSphere = null;
+    return target;
+}
+
+
+var $89e2aa60a15caa63$exports = {};
+
+$parcel$export($89e2aa60a15caa63$exports, "forceDoubleSide", () => $89e2aa60a15caa63$export$918919d0268014f5);
+$parcel$export($89e2aa60a15caa63$exports, "feedTiltBrushLighting", () => $89e2aa60a15caa63$export$7ed32eb6b1db5c77);
+$parcel$export($89e2aa60a15caa63$exports, "fixTiltMeshLighting", () => $89e2aa60a15caa63$export$73a7a1b4b282468a);
+$parcel$export($89e2aa60a15caa63$exports, "parseTBColor", () => $89e2aa60a15caa63$export$5a3b0734775aceb3);
+$parcel$export($89e2aa60a15caa63$exports, "parseTBRotation", () => $89e2aa60a15caa63$export$edd6b7d3b0ca7b27);
+$parcel$export($89e2aa60a15caa63$exports, "applyTBEnvironmentUserData", () => $89e2aa60a15caa63$export$a0333b60c98eb738);
+$parcel$export($89e2aa60a15caa63$exports, "loadEnvironmentDatabase", () => $89e2aa60a15caa63$export$90e986b4043facb2);
+$parcel$export($89e2aa60a15caa63$exports, "loadCubemapDatabase", () => $89e2aa60a15caa63$export$15d3d9da665044ff);
+$parcel$export($89e2aa60a15caa63$exports, "applyEnvironmentAssetData", () => $89e2aa60a15caa63$export$7df74a2fff0cca50);
+
+
+function $89e2aa60a15caa63$export$918919d0268014f5(mat) {
+    if (!mat) return;
+    mat.side = (0, $rINUR$DoubleSide);
+}
+function $89e2aa60a15caa63$export$7ed32eb6b1db5c77(material) {
+    if (material?.uniforms?.directionalLights?.value) {
+        const d0 = material.uniforms.directionalLights.value[0];
+        if (d0 && material.uniforms.u_SceneLight_0_color) material.uniforms.u_SceneLight_0_color.value = new (0, $rINUR$Vector4)(d0.color.r, d0.color.g, d0.color.b, 1);
+        const d1 = material.uniforms.directionalLights.value[1];
+        if (d1 && material.uniforms.u_SceneLight_1_color) material.uniforms.u_SceneLight_1_color.value = new (0, $rINUR$Vector4)(d1.color.r, d1.color.g, d1.color.b, 1);
+    }
+    if (material?.uniforms?.ambientLightColor?.value && material.uniforms.u_ambient_light_color) {
+        const c = material.uniforms.ambientLightColor.value;
+        material.uniforms.u_ambient_light_color.value = new (0, $rINUR$Vector4)(c[0], c[1], c[2], 1);
+    }
+    if (material?.uniforms?.fogColor?.value && material.uniforms.u_fogColor) material.uniforms.u_fogColor.value = material.uniforms.fogColor.value;
+    if (material?.uniforms?.fogDensity?.value !== undefined && material.uniforms.u_fogDensity) material.uniforms.u_fogDensity.value = material.uniforms.fogDensity.value;
+}
+function $89e2aa60a15caa63$export$73a7a1b4b282468a(mesh) {
+    if (!mesh.isMesh || !mesh.material) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [
+        mesh.material
+    ];
+    if (!mesh.geometry.getAttribute('normal')) mesh.geometry.computeVertexNormals();
+    mesh.geometry.setAttribute('a_normal', mesh.geometry.getAttribute('normal'));
+    mats.forEach((mat)=>{
+        mat.lights = true;
+        mat.fog = true;
+        mat.needsUpdate = true;
+    });
+    const previousOnBeforeRender = mesh.onBeforeRender;
+    mesh.onBeforeRender = function(renderer, scene, camera, geometry, material, group) {
+        previousOnBeforeRender.call(this, renderer, scene, camera, geometry, material, group);
+        $89e2aa60a15caa63$export$7ed32eb6b1db5c77(material);
+    };
+}
+function $89e2aa60a15caa63$export$5a3b0734775aceb3(str, fallbackHex) {
+    if (!str) return new (0, $rINUR$Color)(fallbackHex);
+    const [r, g, b] = str.split(',').map(parseFloat);
+    return new (0, $rINUR$Color)(r, g, b);
+}
+function $89e2aa60a15caa63$export$edd6b7d3b0ca7b27(str) {
+    if (!str) return new (0, $rINUR$Vector3)(0, 0, -1);
+    const [x, y, z] = str.split(',').map(parseFloat);
+    const euler = new (0, $rINUR$Euler)((0, $rINUR$MathUtils).degToRad(-x), (0, $rINUR$MathUtils).degToRad(-y), (0, $rINUR$MathUtils).degToRad(z), 'YXZ');
+    return new (0, $rINUR$Vector3)(0, 0, -1).applyEuler(euler);
+}
+function $89e2aa60a15caa63$export$a0333b60c98eb738(scene, ambientLight, dirLight0, dirLight1, userData, label) {
+    if (!userData) return;
+    try {
+        if (userData.TB_SkyColorB || userData.TB_FogColor) scene.background = $89e2aa60a15caa63$export$5a3b0734775aceb3(userData.TB_SkyColorB || userData.TB_FogColor, 0x222222);
+        if (userData.TB_AmbientLightColor) ambientLight.color = $89e2aa60a15caa63$export$5a3b0734775aceb3(userData.TB_AmbientLightColor, 0x000000);
+        if (userData.TB_SceneLight0Color) dirLight0.color = $89e2aa60a15caa63$export$5a3b0734775aceb3(userData.TB_SceneLight0Color, 0x000000);
+        if (userData.TB_SceneLight0Rotation) dirLight0.position.copy($89e2aa60a15caa63$export$edd6b7d3b0ca7b27(userData.TB_SceneLight0Rotation)).multiplyScalar(10);
+        if (userData.TB_SceneLight1Color) dirLight1.color = $89e2aa60a15caa63$export$5a3b0734775aceb3(userData.TB_SceneLight1Color, 0x000000);
+        if (userData.TB_SceneLight1Rotation) dirLight1.position.copy($89e2aa60a15caa63$export$edd6b7d3b0ca7b27(userData.TB_SceneLight1Rotation)).multiplyScalar(10);
+        if (userData.TB_FogColor && userData.TB_FogDensity !== undefined) {
+            const fogColor = $89e2aa60a15caa63$export$5a3b0734775aceb3(userData.TB_FogColor, 0x222222);
+            const fogDensity = parseFloat(userData.TB_FogDensity) || 0;
+            scene.fog = new (0, $rINUR$FogExp2)(fogColor, fogDensity * 0.001);
+        }
+        console.error(err);
+    } catch (e) {
+        console.error(err);
+    }
+}
+let $89e2aa60a15caa63$var$environmentDatabasePromise = null;
+function $89e2aa60a15caa63$export$90e986b4043facb2() {
+    if (!$89e2aa60a15caa63$var$environmentDatabasePromise) $89e2aa60a15caa63$var$environmentDatabasePromise = fetch('./data/environment-database.json').then((res)=>{
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    }).then((db)=>{
+        return db;
+    }).catch((err1)=>{
+        return null;
+    });
+    return $89e2aa60a15caa63$var$environmentDatabasePromise;
+}
+let $89e2aa60a15caa63$var$cubemapDatabasePromise = null;
+function $89e2aa60a15caa63$export$15d3d9da665044ff() {
+    if (!$89e2aa60a15caa63$var$cubemapDatabasePromise) $89e2aa60a15caa63$var$cubemapDatabasePromise = fetch('./data/cubemap-database.json').then((res)=>{
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    }).then((db)=>{
+        return db;
+    }).catch((err1)=>{
+        return null;
+    });
+    return $89e2aa60a15caa63$var$cubemapDatabasePromise;
+}
+function $89e2aa60a15caa63$export$7df74a2fff0cca50(scene, ambientLight, dirLight0, dirLight1, env, cubemapDb, label, customData = null, cubemapBasePath = './Cubemaps/') {
+    try {
+        const toHex = (rgba)=>new (0, $rINUR$Color)(rgba[0], rgba[1], rgba[2]);
+        const lightDirection = (rotXYZW)=>{
+            const q = new (0, $rINUR$Quaternion)(-rotXYZW[0], -rotXYZW[1], rotXYZW[2], rotXYZW[3]);
+            return new (0, $rINUR$Vector3)(0, 0, -1).applyQuaternion(q);
+        };
+        let colorTop = env.skyboxColorA ? toHex(env.skyboxColorA) : null;
+        let colorBottom = env.skyboxColorB ? toHex(env.skyboxColorB) : null;
+        if (customData) {
+            if (customData.TB_SkyColorA) {
+                const [r, g, b] = customData.TB_SkyColorA.split(',').map(parseFloat);
+                colorTop = new (0, $rINUR$Color)(r, g, b);
+            }
+            if (customData.TB_SkyColorB) {
+                const [r, g, b] = customData.TB_SkyColorB.split(',').map(parseFloat);
+                colorBottom = new (0, $rINUR$Color)(r, g, b);
+            }
+            if (customData.Environment && customData.Environment.GradientColors) {
+                const c0 = customData.Environment.GradientColors[0];
+                const c1 = customData.Environment.GradientColors[1];
+                colorTop = new (0, $rINUR$Color)(c0[0] / 255, c0[1] / 255, c0[2] / 255);
+                colorBottom = new (0, $rINUR$Color)(c1[0] / 255, c1[1] / 255, c1[2] / 255);
+            }
+        }
+        if (colorTop && colorBottom) {
+            if (!colorTop.equals(colorBottom)) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 512;
+                const context = canvas.getContext('2d');
+                const gradient = context.createLinearGradient(0, 0, 0, 512);
+                gradient.addColorStop(0, colorBottom.getStyle());
+                gradient.addColorStop(1, colorTop.getStyle());
+                context.fillStyle = gradient;
+                context.fillRect(0, 0, 512, 512);
+                const texture = new (0, $rINUR$CanvasTexture)(canvas);
+                texture.colorSpace = (0, $rINUR$SRGBColorSpace);
+                texture.mapping = (0, $rINUR$EquirectangularReflectionMapping);
+                texture.needsUpdate = true;
+                scene.background = texture;
+            } else scene.background = colorTop;
+        } else if (env.fogColor) scene.background = toHex(env.fogColor);
+        if (env.ambientColor) ambientLight.color = toHex(env.ambientColor);
+        if (env.lights && env.lights[0]) {
+            dirLight0.color = toHex(env.lights[0].color);
+            dirLight0.intensity = env.lights[0].intensity ?? 1;
+            dirLight0.position.copy(lightDirection(env.lights[0].rotation)).multiplyScalar(10);
+        }
+        if (env.lights && env.lights[1]) {
+            dirLight1.color = toHex(env.lights[1].color);
+            dirLight1.intensity = env.lights[1].intensity ?? 1;
+            dirLight1.position.copy(lightDirection(env.lights[1].rotation)).multiplyScalar(10);
+        } else dirLight1.intensity = 0;
+        if (env.fogEnabled && env.fogColor) {
+            const density = env.fogDensity > 0 ? env.fogDensity : customData?.TB_FogDensity ? parseFloat(customData.TB_FogDensity) : 0.01;
+            scene.fog = new (0, $rINUR$FogExp2)(toHex(env.fogColor), density * 0.001);
+        }
+        const loadCubemap = (guid, isSkybox)=>{
+            if (!guid || !cubemapDb || !cubemapDb[guid]) return;
+            const fileName = cubemapDb[guid];
+            const filePath = cubemapBasePath + fileName;
+            const isEXR = fileName.toLowerCase().endsWith('.exr');
+            const loader = isEXR ? new (0, $rINUR$EXRLoader)() : new (0, $rINUR$TextureLoader)();
+            loader.load(filePath, (texture)=>{
+                if (!isEXR) texture.colorSpace = (0, $rINUR$SRGBColorSpace);
+                texture.mapping = (0, $rINUR$EquirectangularReflectionMapping);
+                if (isSkybox) scene.background = texture;
+                else scene.environment = texture;
+            }, undefined, (err1)=>console.error(err1));
+        };
+        if (env.skyboxCubemap) loadCubemap(env.skyboxCubemap, true);
+        if (env.reflectionCubemap) loadCubemap(env.reflectionCubemap, false);
+    } catch (e) {
+        throw e;
+    }
+}
+
+
+let $8fc1e38b542b44db$var$brushDatabasePromise = null;
+function $8fc1e38b542b44db$var$loadBrushDatabase() {
+    if (!$8fc1e38b542b44db$var$brushDatabasePromise) {
+        const url = new URL("brush-database.59667588.js", import.meta.url);
+        $8fc1e38b542b44db$var$brushDatabasePromise = fetch(url).then((res)=>{
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+        }).then((db)=>{
+            return db;
+        }).catch((err)=>{
+            return {};
+        });
+    }
+    return $8fc1e38b542b44db$var$brushDatabasePromise;
+}
+const $8fc1e38b542b44db$var$brushFamilyMap = {
+    "LightWire": "tube",
+    "Disco": "tube",
+    "TubeToonInverted": "tube",
+    "FacetedTube": "tube",
+    "WaveformTube": "tube",
+    "MylarTube": "tube",
+    "KeijiroTube": "tube",
+    "TaperedWire": "tube",
+    "Wireframe": "tube",
+    "Muscle": "tube",
+    "Guts": "tube",
+    "TubeAdditive": "tube",
+    "Wire (Lit)": "tube",
+    "Fire2": "tube",
+    "BubbleWand": "tube",
+    "Lofted (Hue Shift)": "tube",
+    "Lofted": "tube",
+    "Comet": "tube",
+    "DiamondHull": "hull",
+    "MatteHull": "hull",
+    "UnlitHull": "hull",
+    "ShinyHull": "hull",
+    "SmoothHull": "hull",
+    "PassthroughHull": "hull",
+    "ConcaveHull": "concave-hull",
+    "Stars": "particle",
+    "Bubbles": "particle",
+    "Rising Bubbles": "particle",
+    "Snow": "particle",
+    "Embers": "particle",
+    "Smoke": "particle",
+    "WaveformParticles": "particle",
+    "Fairy": "particle",
+    "Rain": "particle",
+    "Wind": "particle",
+    "Space": "particle",
+    "Sparks": "particle",
+    "Splatter": "particle",
+    "ThickPaint": "thick-strip",
+    "ThickGeometry": "thick-strip",
+    "3D Printing Brush": "print3d"
+};
+const $8fc1e38b542b44db$var$brushGeometryOverrides = {
+    "Petal": {
+        geometryParams: {
+            tubeShapeModifier: 5,
+            tubeSideCount: 5,
+            tubeHardEdges: true,
+            tubeEndCaps: false,
+            tubeBreakAngleMultiplier: 1000,
+            tubePetalDisplacementAmount: 2.0,
+            tubePetalDisplacementExponent: 3.0
+        }
+    },
+    "Spikes": {
+        geometryParams: {
+            tubeShapeModifier: 4,
+            tubeSideCount: 3,
+            tubeHardEdges: true
+        }
+    },
+    "Lofted": {
+        geometryParams: {
+            tubeShapeModifier: 1,
+            tubeSideCount: 4,
+            tubeHardEdges: true
+        }
+    },
+    "Lofted (Hue Shift)": {
+        geometryParams: {
+            tubeShapeModifier: 1,
+            tubeSideCount: 4,
+            tubeHardEdges: true
+        }
+    },
+    "Comet": {
+        geometryParams: {
+            tubeUvStyle: "stretch",
+            tubeShapeModifier: 3
+        }
+    },
+    "LightWire": {
+        geometryParams: {
+            lightwireHack: true,
+            tubeStoreRadiusInTexcoord0Z: true
+        }
+    },
+    "HyperGrid": {
+        geometryParams: {
+            sprayRateMultiplier: 1
+        }
+    }
+};
+const $8fc1e38b542b44db$var$brushGeneratorMap = {
+};
+const $8fc1e38b542b44db$var$renderBackfacesMap = {
+    "OilPaint": true,
+    "Ink": true,
+    "ThickPaint": true,
+    "WetPaint": true
+};
+function $8fc1e38b542b44db$var$parseSketchBinary(arrayBuffer) {
+    const data = new DataView(arrayBuffer);
+    const num_strokes = data.getInt32(16, true);
+    let offset = 20;
+    const strokes = [];
+    for(let i = 0; i < num_strokes; i++){
+        const brush_index = data.getInt32(offset, true);
+        const brush_color = [
+            data.getFloat32(offset + 4, true),
+            data.getFloat32(offset + 8, true),
+            data.getFloat32(offset + 12, true),
+            data.getFloat32(offset + 16, true)
+        ];
+        const brush_size = data.getFloat32(offset + 20, true);
+        const stroke_mask = data.getUint32(offset + 24, true);
+        const controlpoint_mask = data.getUint32(offset + 28, true);
+        let offset_stroke_mask = 0;
+        let temp_stroke_mask = stroke_mask;
+        let strokeBitIndex = 0;
+        let brushScale = 1.0;
+        let strokeSeed = i;
+        let ext_offset = offset + 32;
+        while(temp_stroke_mask > 0){
+            if ((temp_stroke_mask & 1) !== 0) {
+                let extSize = 4;
+                if (strokeBitIndex === 1) brushScale = data.getFloat32(ext_offset, true);
+                else if (strokeBitIndex === 3) strokeSeed = data.getUint32(ext_offset, true);
+                ext_offset += extSize;
+                offset_stroke_mask += extSize;
+            }
+            temp_stroke_mask >>>= 1;
+            strokeBitIndex++;
+        }
+        let offset_controlpoint_mask = 0;
+        let temp_cp_mask = controlpoint_mask;
+        while(temp_cp_mask > 0){
+            offset_controlpoint_mask += (temp_cp_mask & 1) * 4;
+            temp_cp_mask >>>= 1;
+        }
+        offset += 32 + offset_stroke_mask;
+        const num_control_points = data.getInt32(offset, true);
+        offset += 4;
+        const cp_stride = 28 + offset_controlpoint_mask;
+        const controlPoints = [];
+        for(let p = 0; p < num_control_points; p++){
+            const base = offset + p * cp_stride;
+            // CONVERSION: Unity (Left-handed) to Three.js (Right-handed)
+            const position = [
+                data.getFloat32(base + 0, true),
+                data.getFloat32(base + 4, true),
+                -data.getFloat32(base + 8, true)
+            ];
+            const orientation = [
+                -data.getFloat32(base + 12, true),
+                -data.getFloat32(base + 16, true),
+                data.getFloat32(base + 20, true),
+                data.getFloat32(base + 24, true)
+            ];
+            let pressure = 1.0;
+            let timestampMs = 0;
+            let extOffset = base + 28;
+            let temp_mask = controlpoint_mask;
+            let bitIndex = 0;
+            while(temp_mask > 0){
+                if ((temp_mask & 1) !== 0) {
+                    if (bitIndex === 0) pressure = data.getFloat32(extOffset, true);
+                    else if (bitIndex === 1) timestampMs = data.getUint32(extOffset, true);
+                    extOffset += 4;
+                }
+                temp_mask >>>= 1;
+                bitIndex++;
+            }
+            controlPoints.push({
+                position: position,
+                orientation: orientation,
+                pressure: pressure,
+                timestampMs: timestampMs
+            });
+        }
+        strokes.push({
+            brush_index: brush_index,
+            color: brush_color,
+            brushSize: brush_size,
+            brushScale: brushScale,
+            controlPoints: controlPoints,
+            seed: strokeSeed
+        });
+        offset += num_control_points * cp_stride;
+    }
+    return strokes;
+}
+function $8fc1e38b542b44db$var$createGeometryFromArrays(arraysList) {
+    if (arraysList.length === 0) return new (0, $rINUR$BufferGeometry)();
+    let totalVertices = 0;
+    let totalIndices = 0;
+    for (const arr of arraysList){
+        totalVertices += arr.positions.length / 3;
+        totalIndices += arr.indices.length;
+    }
+    const positions = new Float32Array(totalVertices * 3);
+    const normals = new Float32Array(totalVertices * 3);
+    const tangents = new Float32Array(totalVertices * 4);
+    const colors = new Float32Array(totalVertices * 4);
+    const uvs = new Float32Array(totalVertices * 2);
+    const indices = new Uint32Array(totalIndices);
+    const uv0Size = arraysList[0]?.uv0Size || 2;
+    const uv1Size = arraysList[0]?.uv1Size || 0;
+    let packedUvs = null;
+    let uv1s = null;
+    if (uv0Size > 2) packedUvs = new Float32Array(totalVertices * uv0Size);
+    if (uv1Size > 0) uv1s = new Float32Array(totalVertices * uv1Size);
+    let vOffset = 0;
+    let iOffset = 0;
+    for (const arr of arraysList){
+        const vCount = arr.positions.length / 3;
+        const iCount = arr.indices.length;
+        positions.set(arr.positions, vOffset * 3);
+        normals.set(arr.normals, vOffset * 3);
+        if (arr.tangents) tangents.set(arr.tangents, vOffset * 4);
+        colors.set(arr.colors, vOffset * 4);
+        uvs.set(arr.uvs, vOffset * 2);
+        if (packedUvs && arr.packedUvs) packedUvs.set(arr.packedUvs, vOffset * uv0Size);
+        if (uv1s && arr.uv1) uv1s.set(arr.uv1, vOffset * uv1Size);
+        for(let i = 0; i < iCount; i++)indices[iOffset + i] = arr.indices[i] + vOffset;
+        vOffset += vCount;
+        iOffset += iCount;
+    }
+    const geometry = new (0, $rINUR$BufferGeometry)();
+    geometry.setAttribute('position', new (0, $rINUR$BufferAttribute)(positions, 3));
+    geometry.setAttribute('normal', new (0, $rINUR$BufferAttribute)(normals, 3));
+    geometry.setAttribute('tangent', new (0, $rINUR$BufferAttribute)(tangents, 4));
+    geometry.setAttribute('color', new (0, $rINUR$BufferAttribute)(colors, 4));
+    if (uv0Size === 2) geometry.setAttribute('uv', new (0, $rINUR$BufferAttribute)(uvs, 2));
+    else if (uv0Size > 2) geometry.setAttribute('uv', new (0, $rINUR$BufferAttribute)(packedUvs, uv0Size));
+    if (uv1Size > 0) geometry.setAttribute('uv1', new (0, $rINUR$BufferAttribute)(uv1s, uv1Size));
+    geometry.setIndex(new (0, $rINUR$BufferAttribute)(indices, 1));
+    geometry.setAttribute('a_position', geometry.getAttribute('position'));
+    geometry.setAttribute('a_normal', geometry.getAttribute('normal'));
+    geometry.setAttribute('a_color', geometry.getAttribute('color'));
+    geometry.setAttribute('a_texcoord0', geometry.getAttribute('uv'));
+    if (geometry.getAttribute('uv1')) geometry.setAttribute('a_texcoord1', geometry.getAttribute('uv1'));
+    if (geometry.getAttribute('tangent')) geometry.setAttribute('a_tangent', geometry.getAttribute('tangent'));
+    return geometry;
+}
 class $8fc1e38b542b44db$export$36ca96fcead4fad7 extends (0, $rINUR$Loader) {
     constructor(manager){
         super(manager);
         this.tiltShaderLoader = new (0, $rINUR$TiltShaderLoader)(manager);
     }
+    setBrushPath(path) {
+        if (path.slice(path.length - 1) !== '/') path += '/';
+        this.tiltShaderLoader.setPath(path);
+        return this;
+    }
     load(url, onLoad, onProgress, onError) {
         const scope = this;
         const loader = new (0, $rINUR$FileLoader)(this.manager);
         loader.setPath(this.path);
-        loader.setResponseType("arraybuffer");
+        loader.setResponseType('arraybuffer');
         loader.setWithCredentials(this.withCredentials);
         loader.load(url, function(buffer) {
-            try {
-                onLoad(scope.parse(buffer));
-            } catch (e) {
-                if (onError) onError(e);
-                else console.error(e);
+            scope.parse(buffer).then((group)=>{
+                onLoad(group);
+            }).catch((err)=>{
+                if (onError) onError(err);
+                else console.error(err);
                 scope.manager.itemError(url);
-            }
+            });
         }, onProgress, onError);
     }
     async parse(buffer) {
         const group = new (0, $rINUR$Group)();
-        // https://docs.google.com/document/d/11ZsHozYn9FnWG7y3s3WAyKIACfbfwb4PbaS8cZ_xjvo/edit#
-        const zip = $rINUR$unzipSync(new Uint8Array(buffer.slice(16)));
-        /*
-		const thumbnail = zip[ 'thumbnail.png' ].buffer;
-		const img = document.createElement( 'img' );
-		img.src = URL.createObjectURL( new Blob( [ thumbnail ] ) );
-		document.body.appendChild( img );
-		*/ const metadata = JSON.parse($rINUR$strFromU8(zip["metadata.json"]));
-        /*
-		const blob = new Blob( [ zip[ 'data.sketch' ].buffer ], { type: 'application/octet-stream' } );
-		window.open( URL.createObjectURL( blob ) );
-		*/ const data = new DataView(zip["data.sketch"].buffer);
-        const num_strokes = data.getInt32(16, true);
-        const brushes = {};
-        let offset = 20;
-        for(let i = 0; i < num_strokes; i++){
-            const brush_index = data.getInt32(offset, true);
-            const brush_color = [
-                data.getFloat32(offset + 4, true),
-                data.getFloat32(offset + 8, true),
-                data.getFloat32(offset + 12, true),
-                data.getFloat32(offset + 16, true)
-            ];
-            const brush_size = data.getFloat32(offset + 20, true);
-            const stroke_mask = data.getUint32(offset + 24, true);
-            const controlpoint_mask = data.getUint32(offset + 28, true);
-            let offset_stroke_mask = 0;
-            let offset_controlpoint_mask = 0;
-            for(let j = 0; j < 4; j++){
-                // TOFIX: I don't understand these masks yet
-                const byte = 1 << j;
-                if ((stroke_mask & byte) > 0) offset_stroke_mask += 4;
-                if ((controlpoint_mask & byte) > 0) offset_controlpoint_mask += 4;
-            }
-            // console.log( { brush_index, brush_color, brush_size, stroke_mask, controlpoint_mask } );
-            // console.log( offset_stroke_mask, offset_controlpoint_mask );
-            offset = offset + 28 + offset_stroke_mask + 4; // TOFIX: This is wrong
-            const num_control_points = data.getInt32(offset, true);
-            // console.log( { num_control_points } );
-            const positions = new Float32Array(num_control_points * 3);
-            const quaternions = new Float32Array(num_control_points * 4);
-            offset = offset + 4;
-            for(let j = 0, k = 0; j < positions.length; j += 3, k += 4){
-                positions[j + 0] = data.getFloat32(offset + 0, true);
-                positions[j + 1] = data.getFloat32(offset + 4, true);
-                positions[j + 2] = data.getFloat32(offset + 8, true);
-                quaternions[k + 0] = data.getFloat32(offset + 12, true);
-                quaternions[k + 1] = data.getFloat32(offset + 16, true);
-                quaternions[k + 2] = data.getFloat32(offset + 20, true);
-                quaternions[k + 3] = data.getFloat32(offset + 24, true);
-                offset = offset + 28 + offset_controlpoint_mask; // TOFIX: This is wrong
-            }
-            if (brush_index in brushes === false) brushes[brush_index] = [];
-            brushes[brush_index].push([
-                positions,
-                quaternions,
-                brush_size,
-                brush_color
-            ]);
+        const zip = (0, $rINUR$unzipSync)(new Uint8Array(buffer.slice(16)));
+        const metadata = JSON.parse((0, $rINUR$strFromU8)(zip['metadata.json']));
+        const strokes = $8fc1e38b542b44db$var$parseSketchBinary(zip['data.sketch'].buffer);
+        const brushDatabase = await $8fc1e38b542b44db$var$loadBrushDatabase();
+        group.userData.tiltMetadata = metadata;
+        const byBrush = {};
+        const globalPlaybackRange = {
+            min: Infinity,
+            max: -Infinity
+        };
+        for (const s of strokes){
+            if (!byBrush[s.brush_index]) byBrush[s.brush_index] = [];
+            byBrush[s.brush_index].push(s);
         }
         const clock = new (0, $rINUR$Clock)();
-        for(const brush_index in brushes){
-            const geometry = new $8fc1e38b542b44db$var$StrokeGeometry(brushes[brush_index]);
-            const materialName = this.tiltShaderLoader.lookupMaterialName(metadata.BrushIndex[brush_index]);
-            const material = await this.tiltShaderLoader.loadAsync(materialName);
-            const mesh = new (0, $rINUR$Mesh)(geometry, material);
-            const scope = this;
-            mesh.onBeforeRender = (renderer, scene, camera, geometry, material, group)=>{
-                if (material.uniforms["u_time"]) {
-                    const elapsedTime = clock.getElapsedTime();
-                    // _Time from https://docs.unity3d.com/Manual/SL-UnityShaderVariables.html
-                    const time = new (0, $rINUR$Vector4)(elapsedTime / 20, elapsedTime, elapsedTime * 2, elapsedTime * 3);
-                    material.uniforms["u_time"].value = time;
+        for(const brushIndexStr in byBrush){
+            const guidOrName = metadata.BrushIndex[brushIndexStr];
+            const materialName = this.tiltShaderLoader.lookupMaterialName(guidOrName);
+            if (!materialName) continue;
+            if (materialName === "HyperGrid") {
+                for (const stroke of byBrush[brushIndexStr])if (stroke.controlPoints.length > 2) {
+                    const newCps = [
+                        stroke.controlPoints[0]
+                    ];
+                    let lastPos = stroke.controlPoints[0].position;
+                    const spacing = 50.25;
+                    for(let p = 1; p < stroke.controlPoints.length - 1; p++){
+                        const cp = stroke.controlPoints[p];
+                        const dist = Math.hypot(cp.position[0] - lastPos[0], cp.position[1] - lastPos[1], cp.position[2] - lastPos[2]);
+                        if (dist >= spacing) {
+                            newCps.push(cp);
+                            lastPos = cp.position;
+                        }
+                    }
+                    newCps.push(stroke.controlPoints[stroke.controlPoints.length - 1]);
+                    stroke.controlPoints = newCps;
                 }
-                if (material.uniforms["cameraPosition"]) material.uniforms["cameraPosition"].value = camera.position;
+            }
+            const dbEntry = brushDatabase[guidOrName];
+            let family = dbEntry?.family || $8fc1e38b542b44db$var$brushFamilyMap[materialName] || "ribbon";
+            let generatorClass = dbEntry?.generatorClass || $8fc1e38b542b44db$var$brushGeneratorMap[materialName];
+            if (!generatorClass) {
+                if (family === "ribbon" || family === "emissive") generatorClass = "FlatGeometryBrush";
+                else if (family === "tube") generatorClass = "TubeBrush";
+            }
+            if (materialName === "Petal" || materialName === "Spikes") {
+                family = "tube";
+                generatorClass = "TubeBrush";
+            }
+            const needsRealBackfaces = dbEntry?.geometryParams?.renderBackfaces !== undefined ? dbEntry.geometryParams.renderBackfaces : $8fc1e38b542b44db$var$renderBackfacesMap[materialName] === true;
+            const defaultOpacityOverrides = {
+                "Electricity": {
+                    geometryParams: {
+                        ribbonOffsetInTexcoord1: true
+                    }
+                },
+                "Petal": {
+                    geometryParams: {
+                        tubeShapeModifier: 5
+                    }
+                }
+            };
+            const baseOverride = defaultOpacityOverrides[materialName] || {};
+            const legacyOverride = {
+                ...baseOverride,
+                ...$8fc1e38b542b44db$var$brushGeometryOverrides[materialName] || {},
+                geometryParams: {
+                    ...baseOverride.geometryParams,
+                    ...$8fc1e38b542b44db$var$brushGeometryOverrides[materialName]?.geometryParams || {}
+                }
+            };
+            const options = {
+                generatorClass: legacyOverride.generatorClass || generatorClass,
+                pressureSizeRange: legacyOverride.pressureSizeRange || dbEntry?.pressureSizeRange,
+                pressureOpacityRange: legacyOverride.pressureOpacityRange || dbEntry?.pressureOpacityRange,
+                deterministicBirthTime: true,
+                geometryParams: {
+                    renderBackfaces: needsRealBackfaces,
+                    ...dbEntry?.geometryParams || {},
+                    ...legacyOverride.geometryParams || {}
+                }
+            };
+            if (options.generatorClass === "GeniusParticlesBrush" && options.geometryParams.particleRate !== undefined) {
+                const particleMultipliers = {
+                    "Dots": 0.045,
+                    "Embers": 0.01,
+                    "Smoke": 0.01,
+                    "Snow": 0.01,
+                    "Bubbles": 0.01,
+                    "Stars": 0.01
+                };
+                const multiplier = particleMultipliers[materialName] !== undefined ? particleMultipliers[materialName] : 0.01;
+                options.geometryParams.particleRate *= multiplier;
+            }
+            const arraysList = [];
+            const strokeTimeline = [];
+            let cumulativeIndexCount = 0;
+            for (const stroke of byBrush[brushIndexStr]){
+                if (stroke.controlPoints.length < 2) continue;
+                const arrays = (0, $6fafcf15f6b61d60$export$366b94ab2030e692)(stroke, family, options);
+                if (materialName === "Comet") {
+                    let maxU = 0;
+                    for(let i = 0; i < arrays.uvs.length; i += 2)if (arrays.uvs[i] > maxU) maxU = arrays.uvs[i];
+                    for(let i = 0; i < arrays.uvs.length; i += 2)arrays.uvs[i] = maxU - arrays.uvs[i];
+                }
+                arraysList.push(arrays);
+                cumulativeIndexCount += arrays.indices.length;
+                const lastCp = stroke.controlPoints[stroke.controlPoints.length - 1];
+                strokeTimeline.push({
+                    indexEnd: cumulativeIndexCount,
+                    t: lastCp.timestampMs
+                });
+                if (lastCp.timestampMs < globalPlaybackRange.min) globalPlaybackRange.min = lastCp.timestampMs;
+                if (lastCp.timestampMs > globalPlaybackRange.max) globalPlaybackRange.max = lastCp.timestampMs;
+            }
+            const geometry = $8fc1e38b542b44db$var$createGeometryFromArrays(arraysList);
+            let material;
+            try {
+                material = await this.tiltShaderLoader.loadAsync(materialName);
+            } catch (err) {
+                continue;
+            }
+            if (material) {
+                const isAdditive = material.blending === 2 || material.blending === 5 || material.name.includes("Waveform") || material.name.includes("Chromatic");
+                if (needsRealBackfaces && !isAdditive && materialName !== "Petal") material.side = (0, $rINUR$FrontSide);
+                else material.side = (0, $rINUR$DoubleSide);
+                if (isAdditive) material.depthWrite = false;
+                if (material.uniforms && material.uniforms.u_A2CEnabled) {
+                    material.uniforms.u_A2CEnabled.value = 0.0;
+                    material.needsUpdate = true;
+                }
+                if (materialName === "Electricity" || guidOrName === "f6e85de3-6dcc-4e7f-87fd-cee8c3d25d51") {
+                    if (material.uniforms) {
+                        material.uniforms.u_isNewTiltExporter = {
+                            value: false
+                        };
+                        material.uniforms.u_ElectricityHasBakedDisplacement = {
+                            value: false
+                        };
+                    }
+                    material = (0, $rINUR$createTiltBrushRenderMaterial)(guidOrName, material, {}, {
+                        electricityMultipass: true
+                    });
+                }
+                if (materialName === "HyperGrid" && material.uniforms) {
+                    material.uniforms.u_isNewTiltExporter = {
+                        value: true
+                    };
+                    material.needsUpdate = true;
+                }
+            }
+            const mesh = new (0, $rINUR$Mesh)(geometry, material);
+            if (Array.isArray(material)) (0, $rINUR$applyTiltBrushRenderGroups)(geometry, geometry.getIndex().count, material);
+            mesh.userData.strokeTimeline = strokeTimeline;
+            mesh.onBeforeRender = (renderer, scene, camera, geo, mat)=>{
+                if (mat.uniforms && mat.uniforms['u_time']) {
+                    const t = clock.getElapsedTime();
+                    mat.uniforms['u_time'].value.set(t / 20, t, t * 2, t * 3);
+                }
+                if (mat.uniforms && mat.uniforms['cameraPosition']) mat.uniforms['cameraPosition'].value = camera.position;
             };
             group.add(mesh);
-        }
-        return group;
-    }
-    setBrushPath(path) {
-        // Quick repair of path if required
-        if (path.slice(path.length - 1) !== "/") path += "/";
-        this.tiltShaderLoader.setPath(path);
-    }
-}
-class $8fc1e38b542b44db$var$StrokeGeometry extends (0, $rINUR$BufferGeometry) {
-    constructor(strokes){
-        super();
-        const vertices = [];
-        const colors = [];
-        const uvs = [];
-        const position = new (0, $rINUR$Vector3)();
-        const prevPosition = new (0, $rINUR$Vector3)();
-        const quaternion = new (0, $rINUR$Quaternion)();
-        const prevQuaternion = new (0, $rINUR$Quaternion)();
-        const vector1 = new (0, $rINUR$Vector3)();
-        const vector2 = new (0, $rINUR$Vector3)();
-        const vector3 = new (0, $rINUR$Vector3)();
-        const vector4 = new (0, $rINUR$Vector3)();
-        // size = size / 2;
-        for(const k in strokes){
-            const stroke = strokes[k];
-            const positions = stroke[0];
-            const quaternions = stroke[1];
-            const size = stroke[2];
-            const color = stroke[3];
-            prevPosition.fromArray(positions, 0);
-            prevQuaternion.fromArray(quaternions, 0);
-            for(let i = 3, j = 4, l = positions.length; i < l; i += 3, j += 4){
-                position.fromArray(positions, i);
-                quaternion.fromArray(quaternions, j);
-                vector1.set(-size, 0, 0);
-                vector1.applyQuaternion(quaternion);
-                vector1.add(position);
-                vector2.set(size, 0, 0);
-                vector2.applyQuaternion(quaternion);
-                vector2.add(position);
-                vector3.set(size, 0, 0);
-                vector3.applyQuaternion(prevQuaternion);
-                vector3.add(prevPosition);
-                vector4.set(-size, 0, 0);
-                vector4.applyQuaternion(prevQuaternion);
-                vector4.add(prevPosition);
-                vertices.push(vector1.x, vector1.y, -vector1.z, 1);
-                vertices.push(vector2.x, vector2.y, -vector2.z, 1);
-                vertices.push(vector4.x, vector4.y, -vector4.z, 1);
-                vertices.push(vector2.x, vector2.y, -vector2.z, 1);
-                vertices.push(vector3.x, vector3.y, -vector3.z, 1);
-                vertices.push(vector4.x, vector4.y, -vector4.z, 1);
-                prevPosition.copy(position);
-                prevQuaternion.copy(quaternion);
-                colors.push(...color);
-                colors.push(...color);
-                colors.push(...color);
-                colors.push(...color);
-                colors.push(...color);
-                colors.push(...color);
-                const p1 = i / l;
-                const p2 = (i - 3) / l;
-                uvs.push(p1, 0);
-                uvs.push(p1, 1);
-                uvs.push(p2, 0);
-                uvs.push(p1, 1);
-                uvs.push(p2, 1);
-                uvs.push(p2, 0);
+            if (materialName === "Toon") {
+                const posAttr = geometry.getAttribute('position');
+                const normAttr = geometry.getAttribute('normal');
+                const outlineWidth = 0.05;
+                const inflatedPositions = new Float32Array(posAttr.count * 3);
+                for(let i = 0; i < posAttr.count; i++){
+                    inflatedPositions[i * 3 + 0] = posAttr.getX(i) + normAttr.getX(i) * outlineWidth;
+                    inflatedPositions[i * 3 + 1] = posAttr.getY(i) + normAttr.getY(i) * outlineWidth;
+                    inflatedPositions[i * 3 + 2] = posAttr.getZ(i) + normAttr.getZ(i) * outlineWidth;
+                }
+                const outlineGeometry = new (0, $rINUR$BufferGeometry)();
+                outlineGeometry.setAttribute('position', new (0, $rINUR$BufferAttribute)(inflatedPositions, 3));
+                outlineGeometry.setIndex(geometry.getIndex());
+                const outlineMaterial = new (0, $rINUR$MeshBasicMaterial)({
+                    color: 0x000000,
+                    side: (0, $rINUR$BackSide),
+                    depthWrite: true,
+                    depthTest: true
+                });
+                const outlineMesh = new (0, $rINUR$Mesh)(outlineGeometry, outlineMaterial);
+                outlineMesh.userData.strokeTimeline = strokeTimeline;
+                group.add(outlineMesh);
             }
         }
-        this.setAttribute("position", new (0, $rINUR$BufferAttribute)(new Float32Array(vertices), 4));
-        this.setAttribute("color", new (0, $rINUR$BufferAttribute)(new Float32Array(colors), 4));
-        this.setAttribute("uv", new (0, $rINUR$BufferAttribute)(new Float32Array(uvs), 2));
-        this.setAttribute("a_position", this.getAttribute("position"));
-        this.setAttribute("a_color", this.getAttribute("color"));
-        this.setAttribute("a_texcoord0", this.getAttribute("uv"));
-    //this.setAttribute("_tb_unity_texcoord_0", this.getAttribute("uv"));
+        if (globalPlaybackRange.max > globalPlaybackRange.min) group.userData.playbackRangeMs = globalPlaybackRange;
+        return group;
     }
 }
 
 
-export {$8fc1e38b542b44db$export$36ca96fcead4fad7 as TiltLoader, $8da93982032879e2$export$c58992c2d0e506a0 as createBufferGeometry, $6fafcf15f6b61d60$export$cbaccd875830d3d0 as createBrushGeometryArrays, $6fafcf15f6b61d60$export$366b94ab2030e692 as generateBrushGeometry, $6fafcf15f6b61d60$export$b666f4efdc86d990 as generateBrushGeometryInto, $6fafcf15f6b61d60$export$96e734d2eaa5b48d as getGeneratedIndexCount, $6fafcf15f6b61d60$export$25229b7d204fd918 as getGeneratedVertexCount};
+export {$8fc1e38b542b44db$export$36ca96fcead4fad7 as TiltLoader, $8da93982032879e2$export$c58992c2d0e506a0 as createBufferGeometry, $6fafcf15f6b61d60$export$cbaccd875830d3d0 as createBrushGeometryArrays, $6fafcf15f6b61d60$export$366b94ab2030e692 as generateBrushGeometry, $6fafcf15f6b61d60$export$b666f4efdc86d990 as generateBrushGeometryInto, $6fafcf15f6b61d60$export$96e734d2eaa5b48d as getGeneratedIndexCount, $6fafcf15f6b61d60$export$25229b7d204fd918 as getGeneratedVertexCount, $89e2aa60a15caa63$export$918919d0268014f5 as forceDoubleSide, $89e2aa60a15caa63$export$7ed32eb6b1db5c77 as feedTiltBrushLighting, $89e2aa60a15caa63$export$73a7a1b4b282468a as fixTiltMeshLighting, $89e2aa60a15caa63$export$5a3b0734775aceb3 as parseTBColor, $89e2aa60a15caa63$export$edd6b7d3b0ca7b27 as parseTBRotation, $89e2aa60a15caa63$export$a0333b60c98eb738 as applyTBEnvironmentUserData, $89e2aa60a15caa63$export$90e986b4043facb2 as loadEnvironmentDatabase, $89e2aa60a15caa63$export$15d3d9da665044ff as loadCubemapDatabase, $89e2aa60a15caa63$export$7df74a2fff0cca50 as applyEnvironmentAssetData};
 //# sourceMappingURL=three-tiltloader.module.js.map

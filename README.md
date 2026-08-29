@@ -5,6 +5,11 @@
 [![Twitter](https://img.shields.io/badge/follow-%40IcosaGallery-blue.svg?style=flat&logo=twitter)](https://twitter.com/IcosaGallery)
 [![Discord](https://discordapp.com/api/guilds/783806589991780412/embed.png?style=shield)](https://discord.gg/W7NCEYnEfy)
 
+> **Notice of Modifications (Apache 2.0):**
+> This repository is a modified version of the original `three-tiltloader`. 
+> Changes include bug fixes, the addition of new generation scripts, and a custom demo environment setup. 
+> These modifications are distributed under the same Apache 2.0 License. Original project by IcosaGallery.
+
 Custom three.js loader for the `.tilt` format used by Tilt Brush and Open Brush. The loader will inject the relevant shaders and textures for correct rendering of the file.
 
 Adapted from the initial [TiltLoader](https://github.com/mrdoob/three.js/blob/r128/examples/jsm/loaders/TiltLoader.js) in three.js.
