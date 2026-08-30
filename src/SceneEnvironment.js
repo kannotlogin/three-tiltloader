@@ -1,5 +1,7 @@
 import { Color, Euler, MathUtils, Quaternion, Vector3, Vector4, FogExp2, CanvasTexture, TextureLoader, EquirectangularReflectionMapping, SRGBColorSpace, DoubleSide } from 'three';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { ENVIRONMENT_DATABASE } from './data/environment-database.generated.js';
+import { CUBEMAP_DATABASE } from './data/cubemap-database.generated.js';
 
 export function forceDoubleSide(mat) {
     if (!mat) return;
@@ -95,40 +97,17 @@ export function applyTBEnvironmentUserData(scene, ambientLight, dirLight0, dirLi
             const fogDensity = parseFloat(userData.TB_FogDensity) || 0;
             scene.fog = new FogExp2(fogColor, fogDensity * 0.001);
         }
-        console.error(err);
     } catch (e) {
-        console.error(err);
+        console.error(e);
     }
 }
 
-let environmentDatabasePromise = null;
 export function loadEnvironmentDatabase() {
-    if (!environmentDatabasePromise) {
-        environmentDatabasePromise = fetch('./data/environment-database.json')
-            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-            .then(db => {
-                return db;
-            })
-            .catch(err => {
-                return null;
-            });
-    }
-    return environmentDatabasePromise;
+    return Promise.resolve(ENVIRONMENT_DATABASE);
 }
 
-let cubemapDatabasePromise = null;
 export function loadCubemapDatabase() {
-    if (!cubemapDatabasePromise) {
-        cubemapDatabasePromise = fetch('./data/cubemap-database.json')
-            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-            .then(db => {
-                return db;
-            })
-            .catch(err => {
-                return null;
-            });
-    }
-    return cubemapDatabasePromise;
+    return Promise.resolve(CUBEMAP_DATABASE);
 }
 
 export function applyEnvironmentAssetData(scene, ambientLight, dirLight0, dirLight1, env, cubemapDb, label, customData = null, cubemapBasePath = './Cubemaps/') {

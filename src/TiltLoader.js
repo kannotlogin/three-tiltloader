@@ -14,6 +14,7 @@ import {
 import { unzipSync, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
 import { TiltShaderLoader, createTiltBrushRenderMaterial, applyTiltBrushRenderGroups } from 'three-icosa';
 import { generateBrushGeometry } from './brush-geometry.ts';
+import { BRUSH_DATABASE } from './data/brush-database.generated.js';
 
 export { createBufferGeometry } from './geometry-api.mjs';
 export {
@@ -26,25 +27,6 @@ export {
 
 // Export lighting and environment logic seamlessly.
 export * from './SceneEnvironment.js';
-
-let brushDatabasePromise = null;
-function loadBrushDatabase() {
-    if (!brushDatabasePromise) {
-        const url = new URL('./data/brush-database.json', import.meta.url);
-        brushDatabasePromise = fetch(url)
-            .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-            })
-            .then(db => {
-                return db;
-            })
-            .catch(err => {
-                return {};
-            });
-    }
-    return brushDatabasePromise;
-}
 
 const brushFamilyMap = {
     "LightWire": "tube", "Disco": "tube", "TubeToonInverted": "tube",
@@ -331,7 +313,7 @@ export class TiltLoader extends Loader {
         const zip = unzipSync(new Uint8Array(buffer.slice(16)));
         const metadata = JSON.parse(strFromU8(zip['metadata.json']));
         const strokes = parseSketchBinary(zip['data.sketch'].buffer);
-        const brushDatabase = await loadBrushDatabase();
+        const brushDatabase = BRUSH_DATABASE;
 
         group.userData.tiltMetadata = metadata;
 

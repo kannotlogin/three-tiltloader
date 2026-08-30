@@ -27,15 +27,6 @@ window.fetch = async function(...args) {
         return new Response(cleanCode, { status: 200, headers: { 'Content-Type': 'text/plain' } });
     }
 
-    if (urlStr.includes('brush-database') && urlStr.endsWith('.js')) {
-        args[0] = '../src/data/brush-database.json';
-    } 
-    else if (urlStr.includes('/data/')) {
-        args[0] = urlStr.replace('/data/', '/../src/data/');
-    } else if (urlStr.startsWith('./data/')) {
-        args[0] = urlStr.replace('./data/', '../src/data/');
-    }
-
     return originalFetch.apply(this, args);
 };
 
