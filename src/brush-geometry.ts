@@ -3894,6 +3894,7 @@ function generateSprayParticleGeometry(
   out.uv0Size = 2;
   const hasLifetime =
     options.generatorClass === "MidpointPlusLifetimeSprayBrush";
+  stroke = retainSprayControlPoints(stroke, options, out, hasLifetime);
   out.uv1Size = hasLifetime ? 4 : 0;
   if (hasLifetime) {
     ensureGeometryPressureCapacity(out, stroke.controlPoints.length);
@@ -3947,10 +3948,9 @@ function generateSprayParticleGeometry(
   const positionVariance = normalizeNonNegative(
     options.geometryParams?.particlePositionVariance,
   );
-  const rotationVarianceRadians =
-    (normalizeNonNegative(options.geometryParams?.particleRotationVariance) *
-      Math.PI) /
-    180;
+  const rotationVarianceDegrees = Math.fround(
+    normalizeNonNegative(options.geometryParams?.particleRotationVariance),
+  );
   const sizeRatioX = normalizePositive(
     options.geometryParams?.particleSizeRatio?.[0],
     1,
@@ -3964,14 +3964,14 @@ function generateSprayParticleGeometry(
   const usesAtlas = normalizeAtlasRows(options.geometryParams?.textureAtlasV) > 1;
   const pointerForward: Vec3 = [0, 0, 0];
   const pointerUp: Vec3 = [0, 0, 0];
-  const preferredRight: Vec3 = [0, 0, 0];
   const segmentDirection: Vec3 = [0, 0, 0];
   const frameRight: Vec3 = [0, 0, 0];
   const frameNormal: Vec3 = [0, 0, 0];
   const rotatedRight: Vec3 = [0, 0, 0];
   const rotatedFacing: Vec3 = [0, 0, 0];
-  const randomOffset: Vec3 = [0, 0, 0];
-  const center: Vec3 = [0, 0, 0];
+  const sourceLastSpawn: Vec3 = [0, 0, 0];
+  const sourceCenter: Vec3 = [0, 0, 0];
+  const sourceRandomOffset: Vec3 = [0, 0, 0];
   let quadIndex = 0;
   // SprayBrush decays its preview in place and offsets knot salts to preserve
   // its random sequence. MidpointPlusLifetimeSprayBrush instead inherits
@@ -3987,24 +3987,38 @@ function generateSprayParticleGeometry(
     const pressure = hasLifetime
       ? out.geometrySmoothedPressures[pointIndex]
       : point.pressure;
-    segmentDirection[0] = point.position[0] - previousPoint.position[0];
-    segmentDirection[1] = point.position[1] - previousPoint.position[1];
-    segmentDirection[2] = point.position[2] - previousPoint.position[2];
+    writeOpenBrushFloatDirection(
+      previousPoint.position,
+      point.position,
+      segmentDirection,
+    );
     const segmentLength = Math.hypot(
-      segmentDirection[0],
-      segmentDirection[1],
-      segmentDirection[2],
+      point.position[0] - previousPoint.position[0],
+      point.position[1] - previousPoint.position[1],
+      point.position[2] - previousPoint.position[2],
     );
     if (segmentLength <= EPSILON) {
       continue;
     }
-    segmentDirection[0] /= segmentLength;
-    segmentDirection[1] /= segmentLength;
-    segmentDirection[2] /= segmentLength;
     const pressuredSize =
       localBrushSize *
       getPressureSizeMultiplier(pressure, pressureSizeMin);
     const spawnInterval = pressuredSize / particleRate;
+    const sourcePressureSizeMin = Math.fround(pressureSizeMin);
+    const sourcePressure = Math.fround(clamp01(pressure));
+    const sourcePressureMultiplier = Math.fround(
+      sourcePressureSizeMin +
+        Math.fround(
+          Math.fround(1 - sourcePressureSizeMin) * sourcePressure,
+        ),
+    );
+    const sourcePressuredSize = Math.fround(
+      Math.fround(localBrushSize * OPEN_BRUSH_UNITS_PER_METER) *
+        sourcePressureMultiplier,
+    );
+    const sourceSpawnInterval = Math.fround(
+      sourcePressuredSize / Math.fround(particleRate),
+    );
     const segmentQuadCount =
       spawnInterval > EPSILON
         ? Math.min(500, Math.floor(segmentLength / spawnInterval))
@@ -4012,17 +4026,12 @@ function generateSprayParticleGeometry(
     if (segmentQuadCount === 0) {
       continue;
     }
-    rotateByQuaternion(point.orientation, VEC_FORWARD, pointerForward);
-    rotateByQuaternion(point.orientation, VEC_UP, pointerUp);
-    preferredRight[0] = 0;
-    preferredRight[1] = 0;
-    preferredRight[2] = 0;
-    computeSurfaceFrame(
-      preferredRight,
+    rotateByUnityQuaternionFloat(point.orientation, VEC_FORWARD, pointerForward);
+    rotateByUnityQuaternionFloat(point.orientation, VEC_UP, pointerUp);
+    computeOpenBrushSprayFrame(
       segmentDirection,
       pointerForward,
       pointerUp,
-      true,
       frameRight,
       frameNormal,
     );
@@ -4032,32 +4041,70 @@ function generateSprayParticleGeometry(
         pressureOpacityMin,
         pressureOpacityMax,
       ) * descriptorOpacity;
+    sourceLastSpawn[0] = Math.fround(
+      previousPoint.position[0] * OPEN_BRUSH_UNITS_PER_METER,
+    );
+    sourceLastSpawn[1] = Math.fround(
+      previousPoint.position[1] * OPEN_BRUSH_UNITS_PER_METER,
+    );
+    sourceLastSpawn[2] = Math.fround(
+      previousPoint.position[2] * OPEN_BRUSH_UNITS_PER_METER,
+    );
 
     for (let segmentQuad = 0; segmentQuad < segmentQuadCount; segmentQuad += 1) {
       const salt = hasLifetime
         ? 10 * ((pointIndex + knotIndexOffset) * 5 + segmentQuad)
         : 10 * ((pointIndex + knotIndexOffset) * 12 + (segmentQuad % 12));
-      const rotation =
-        (statelessRandom01(stroke.seed, salt + 1) * 2 - 1) *
-        rotationVarianceRadians;
-      rotateAroundAxis(frameRight, frameNormal, rotation, rotatedRight);
-      rotateAroundAxis(segmentDirection, frameNormal, rotation, rotatedFacing);
-      const size =
-        pressuredSize *
-        (1 + statelessRandom01(stroke.seed, salt) * sizeVariance);
-      center[0] =
-        previousPoint.position[0] +
-        segmentDirection[0] * spawnInterval * segmentQuad;
-      center[1] =
-        previousPoint.position[1] +
-        segmentDirection[1] * spawnInterval * segmentQuad;
-      center[2] =
-        previousPoint.position[2] +
-        segmentDirection[2] * spawnInterval * segmentQuad;
-      writeRandomInsideSphere(stroke.seed, salt + 2, randomOffset);
-      center[0] += randomOffset[0] * size * positionVariance;
-      center[1] += randomOffset[1] * size * positionVariance;
-      center[2] += randomOffset[2] * size * positionVariance;
+      let rotation = Math.fround(
+        -Math.fround(
+          -rotationVarianceDegrees +
+            Math.fround(
+              Math.fround(rotationVarianceDegrees * 2) *
+                statelessRandom01(stroke.seed, salt + 1),
+            ),
+        ),
+      );
+      rotation = nextFloatAwayFromZero(rotation);
+      rotateAroundUnityAxisFloat(frameRight, frameNormal, rotation, rotatedRight);
+      rotateAroundUnityAxisFloat(
+        segmentDirection,
+        frameNormal,
+        rotation,
+        rotatedFacing,
+      );
+      const sourceRandomSize = Math.fround(
+        1 +
+          Math.fround(
+            statelessRandom01(stroke.seed, salt) * Math.fround(sizeVariance),
+          ),
+      );
+      const sourceSize = Math.fround(sourcePressuredSize * sourceRandomSize);
+      writeRandomInsideSphereUnityFloat(
+        stroke.seed,
+        salt + 2,
+        sourceRandomOffset,
+      );
+      const sourcePositionScale = Math.fround(
+        sourceSize * Math.fround(positionVariance),
+      );
+      sourceCenter[0] = Math.fround(
+        sourceLastSpawn[0] +
+          Math.fround(sourceRandomOffset[0] * sourcePositionScale),
+      );
+      sourceCenter[1] = Math.fround(
+        sourceLastSpawn[1] +
+          Math.fround(sourceRandomOffset[1] * sourcePositionScale),
+      );
+      sourceCenter[2] = Math.fround(
+        sourceLastSpawn[2] +
+          Math.fround(sourceRandomOffset[2] * sourcePositionScale),
+      );
+      const sourceForwardScale = Math.fround(
+        Math.fround(sourceSize * Math.fround(sizeRatioX)) * 0.5,
+      );
+      const sourceRightScale = Math.fround(
+        Math.fround(sourceSize * Math.fround(sizeRatioY)) * 0.5,
+      );
       const opacity = randomizeAlpha
         ? statelessRandom01(stroke.seed, salt + 5)
         : baseOpacity;
@@ -4074,48 +4121,36 @@ function generateSprayParticleGeometry(
         indices,
         bounds,
         quadIndex,
-        center,
         rotatedFacing,
         rotatedRight,
         frameNormal,
-        size * sizeRatioX * 0.5,
-        size * sizeRatioY * 0.5,
         stroke.color,
         opacity,
         usesAtlas,
         atlasCell,
         hasLifetime,
+        hasBackfaces,
+        sourceCenter,
+        sourceForwardScale,
+        sourceRightScale,
         options.deterministicBirthTime === true
           ? 0
           : point.timestampMs * 0.001 +
             normalizeFinite(options.particleBirthTimeOffsetSeconds),
       );
       quadIndex += 1;
-    }
-  }
-
-  if (hasBackfaces) {
-    const backfaceColor = shiftHue(
-      stroke.color,
-      normalizeHueShift(options.geometryParams?.backfaceHueShift),
-    );
-    for (let vertex = 0; vertex < frontVertexCount; vertex += 1) {
-      const backVertex = frontVertexCount + vertex;
-      copyPosition(positions, vertex, backVertex);
-      copyNegatedNormal(normals, vertex, backVertex);
-      copyTangent(tangents, vertex, backVertex, true);
-      copyUv(uvs, vertex, backVertex);
-      writeColorFromAlpha(colors, backVertex, backfaceColor, colors[vertex * 4 + 3]);
-    }
-    for (let quad = 0; quad < quadCount; quad += 1) {
-      const vertex = frontVertexCount + quad * 4;
-      const indexOffset = frontIndexCount + quad * 6;
-      indices[indexOffset] = vertex;
-      indices[indexOffset + 1] = vertex + 3;
-      indices[indexOffset + 2] = vertex + 1;
-      indices[indexOffset + 3] = vertex;
-      indices[indexOffset + 4] = vertex + 2;
-      indices[indexOffset + 5] = vertex + 3;
+      sourceLastSpawn[0] = Math.fround(
+        sourceLastSpawn[0] +
+          Math.fround(segmentDirection[0] * sourceSpawnInterval),
+      );
+      sourceLastSpawn[1] = Math.fround(
+        sourceLastSpawn[1] +
+          Math.fround(segmentDirection[1] * sourceSpawnInterval),
+      );
+      sourceLastSpawn[2] = Math.fround(
+        sourceLastSpawn[2] +
+          Math.fround(segmentDirection[2] * sourceSpawnInterval),
+      );
     }
   }
 
@@ -4123,6 +4158,467 @@ function generateSprayParticleGeometry(
   out.vertexCount = vertexCount;
   out.indexCount = indexCount;
   return reallocated;
+}
+
+function retainSprayControlPoints(
+  stroke: StrokeData,
+  options: BrushGeometryOptions,
+  out: BrushGeometryArrays,
+  smoothPressure: boolean,
+): StrokeData {
+  const source = stroke.controlPoints;
+  if (source.length < 2) {
+    return stroke;
+  }
+  
+  const retained = [];
+  retained.push(source[0]);
+  
+  const pressureSizeMin = normalizePressureSizeMin(options.pressureSizeRange?.[0]);
+  const particleRate = normalizePositive(
+    options.geometryParams?.sprayRateMultiplier,
+    1,
+  );
+  const localBrushSize = getLocalBrushSize(stroke);
+  const smoothingWindow = options.geometryParams?.m11Compatibility === true
+    ? 0.1
+    : 0.2;
+  let lastRetained = source[0];
+  let lastSmoothedPressure = clamp01(source[0].pressure);
+  
+  for (let pointIndex = 1; pointIndex < source.length; pointIndex += 1) {
+    const point = source[pointIndex];
+    const distance = distanceBetweenControlPoints(lastRetained, point);
+    const pressure = smoothPressure
+      ? Math.pow(0.1, distance / smoothingWindow) * lastSmoothedPressure +
+        (1 - Math.pow(0.1, distance / smoothingWindow)) * clamp01(point.pressure)
+      : clamp01(point.pressure);
+    const pressuredSize =
+      localBrushSize * getPressureSizeMultiplier(pressure, pressureSizeMin);
+    const spawnInterval = pressuredSize / particleRate;
+
+    if (
+      pointIndex + 1 === source.length ||
+      distance > spawnInterval
+    ) {
+      retained.push(point);
+      lastRetained = point;
+      lastSmoothedPressure = pressure;
+    }
+  }
+  return retained.length === source.length
+    ? stroke
+    : { ...stroke, controlPoints: retained };
+}
+
+function writeSprayParticleQuad(
+  positions: Float32Array,
+  normals: Float32Array,
+  tangents: Float32Array,
+  colors: Float32Array,
+  uvs: Float32Array,
+  uv1s: Float32Array,
+  indices: Uint32Array,
+  bounds: BrushGeometryBounds,
+  quadIndex: number,
+  facing: Vec3,
+  right: Vec3,
+  normal: Vec3,
+  color: Rgba,
+  opacity: number,
+  usesAtlas: boolean,
+  atlasCell: number,
+  hasLifetime: boolean,
+  hasBackfaces: boolean,
+  sourceCenter: Vec3,
+  sourceForwardScale: number,
+  sourceRightScale: number,
+  birthTimeSeconds: number,
+): void {
+  const vertexStride = hasBackfaces ? 2 : 1;
+  const vertex = quadIndex * 4 * vertexStride;
+  const atlasScale = usesAtlas ? 0.5 : 1;
+  const atlasU = usesAtlas ? (atlasCell % 2) * 0.5 : 0;
+  const atlasV = usesAtlas ? Math.floor(atlasCell / 2) * 0.5 : 0;
+  writeSprayParticleVertex(
+    positions, normals, tangents, colors, uvs, uv1s, bounds,
+    vertex, facing, right, normal,
+    sourceCenter, -sourceForwardScale, sourceRightScale,
+    color, opacity, atlasU, atlasV + atlasScale, hasLifetime, birthTimeSeconds,
+  );
+  writeSprayParticleVertex(
+    positions, normals, tangents, colors, uvs, uv1s, bounds,
+    vertex + vertexStride, facing, right, normal,
+    sourceCenter, -sourceForwardScale, -sourceRightScale,
+    color, opacity, atlasU, atlasV, hasLifetime, birthTimeSeconds,
+  );
+  writeSprayParticleVertex(
+    positions, normals, tangents, colors, uvs, uv1s, bounds,
+    vertex + vertexStride * 2, facing, right, normal,
+    sourceCenter, sourceForwardScale, sourceRightScale,
+    color, opacity, atlasU + atlasScale, atlasV + atlasScale,
+    hasLifetime, birthTimeSeconds,
+  );
+  writeSprayParticleVertex(
+    positions, normals, tangents, colors, uvs, uv1s, bounds,
+    vertex + vertexStride * 3, facing, right, normal,
+    sourceCenter, sourceForwardScale, -sourceRightScale,
+    color, opacity, atlasU + atlasScale, atlasV, hasLifetime, birthTimeSeconds,
+  );
+  writeOpenBrushSprayTangents(
+    tangents,
+    normals,
+    vertex,
+    vertexStride,
+    facing,
+    right,
+    sourceCenter,
+    sourceForwardScale,
+    sourceRightScale,
+  );
+  if (hasBackfaces) {
+    for (let local = 0; local < 4; local += 1) {
+      const frontVertex = vertex + local * 2;
+      const backVertex = frontVertex + 1;
+      copyPosition(positions, frontVertex, backVertex);
+      copyNegatedNormal(normals, frontVertex, backVertex);
+      copyTangent(tangents, frontVertex, backVertex, true);
+      copyUv(uvs, frontVertex, backVertex);
+      writeColorFromAlpha(
+        colors,
+        backVertex,
+        color,
+        colors[frontVertex * 4 + 3],
+      );
+    }
+  }
+  const indexOffset = quadIndex * 6 * vertexStride;
+  indices[indexOffset] = vertex;
+  indices[indexOffset + 1] = vertex + vertexStride * 3;
+  indices[indexOffset + 2] = vertex + vertexStride;
+  if (hasBackfaces) {
+    indices[indexOffset + 3] = vertex + 7;
+    indices[indexOffset + 4] = vertex + 1;
+    indices[indexOffset + 5] = vertex + 3;
+    indices[indexOffset + 6] = vertex;
+    indices[indexOffset + 7] = vertex + 4;
+    indices[indexOffset + 8] = vertex + 6;
+    indices[indexOffset + 9] = vertex + 5;
+    indices[indexOffset + 10] = vertex + 1;
+    indices[indexOffset + 11] = vertex + 7;
+  } else {
+    indices[indexOffset + 3] = vertex;
+    indices[indexOffset + 4] = vertex + 2;
+    indices[indexOffset + 5] = vertex + 3;
+  }
+}
+
+function writeSprayParticleVertex(
+  positions: Float32Array,
+  normals: Float32Array,
+  tangents: Float32Array,
+  colors: Float32Array,
+  uvs: Float32Array,
+  uv1s: Float32Array,
+  bounds: BrushGeometryBounds,
+  vertex: number,
+  facing: Vec3,
+  right: Vec3,
+  normal: Vec3,
+  sourceCenter: Vec3,
+  sourceForwardScale: number,
+  sourceRightScale: number,
+  color: Rgba,
+  opacity: number,
+  u: number,
+  v: number,
+  hasLifetime: boolean,
+  birthTimeSeconds: number,
+): void {
+  const positionOffset = vertex * 3;
+  for (let axis = 0; axis < 3; axis += 1) {
+    const sourcePosition = Math.fround(
+      Math.fround(
+        sourceCenter[axis] +
+          Math.fround(facing[axis] * sourceForwardScale),
+      ) + Math.fround(right[axis] * sourceRightScale),
+    );
+    positions[positionOffset + axis] = sourcePosition / OPEN_BRUSH_UNITS_PER_METER;
+  }
+  normals[positionOffset] = normal[0];
+  normals[positionOffset + 1] = normal[1];
+  normals[positionOffset + 2] = normal[2];
+  writeTangent(tangents, vertex, facing, -1);
+  writeColor(colors, vertex, color, opacity);
+  const uvOffset = vertex * 2;
+  uvs[uvOffset] = u;
+  uvs[uvOffset + 1] = 1 - v;
+  if (hasLifetime) {
+    const uv1Offset = vertex * 4;
+    uv1s[uv1Offset] = Math.fround(
+      Math.fround(facing[0] * sourceForwardScale) +
+        Math.fround(right[0] * sourceRightScale),
+    ) / OPEN_BRUSH_UNITS_PER_METER;
+    uv1s[uv1Offset + 1] = Math.fround(
+      Math.fround(facing[1] * sourceForwardScale) +
+        Math.fround(right[1] * sourceRightScale),
+    ) / OPEN_BRUSH_UNITS_PER_METER;
+    uv1s[uv1Offset + 2] = Math.fround(
+      Math.fround(facing[2] * sourceForwardScale) +
+        Math.fround(right[2] * sourceRightScale),
+    ) / OPEN_BRUSH_UNITS_PER_METER;
+    uv1s[uv1Offset + 3] = birthTimeSeconds;
+  }
+  includeBounds(bounds, positions, vertex);
+}
+
+function writeOpenBrushSprayTangents(
+  tangents: Float32Array,
+  normals: Float32Array,
+  vertex: number,
+  vertexStride: number,
+  facing: Vec3,
+  right: Vec3,
+  centerSource: Vec3,
+  forwardScale: number,
+  rightScale: number,
+): void {
+  const forwardOffset: Vec3 = [
+    Math.fround(facing[0] * forwardScale),
+    Math.fround(facing[1] * forwardScale),
+    Math.fround(facing[2] * forwardScale),
+  ];
+  const rightOffset: Vec3 = [
+    Math.fround(right[0] * rightScale),
+    Math.fround(right[1] * rightScale),
+    Math.fround(right[2] * rightScale),
+  ];
+  const tangentSource: Vec3 = [0, 0, 0];
+  for (let axis = 0; axis < 3; axis += 1) {
+    const backLeft = Math.fround(
+      Math.fround(centerSource[axis] - forwardOffset[axis]) -
+        rightOffset[axis],
+    );
+    const frontLeft = Math.fround(
+      Math.fround(centerSource[axis] + forwardOffset[axis]) -
+        rightOffset[axis],
+    );
+    tangentSource[axis] = Math.fround(frontLeft - backLeft);
+  }
+  for (let local = 0; local < 4; local += 1) {
+    writeUnityFloatOrthonormalTangent(
+      tangents,
+      normals,
+      vertex + local * vertexStride,
+      tangentSource,
+      -1,
+    );
+  }
+}
+
+function writeUnityFloatOrthonormalTangent(
+  tangents: Float32Array,
+  normals: Float32Array,
+  vertex: number,
+  source: Vec3,
+  handedness: number,
+): void {
+  const normalOffset = vertex * 3;
+  const normal: Vec3 = [
+    normals[normalOffset],
+    normals[normalOffset + 1],
+    normals[normalOffset + 2],
+  ];
+  const projection = dotUnityFloat(source, normal);
+  const tangent: Vec3 = [
+    Math.fround(source[0] - Math.fround(projection * normal[0])),
+    Math.fround(source[1] - Math.fround(projection * normal[1])),
+    Math.fround(source[2] - Math.fround(projection * normal[2])),
+  ];
+  normalizeUnityFloatVector(tangent);
+  writeTangent(tangents, vertex, tangent, handedness);
+}
+
+function writeRandomInsideSphereUnityFloat(
+  seed: number,
+  salt: number,
+  out: Vec3,
+): void {
+  const u = Math.fround(
+    -1 + Math.fround(2 * statelessRandom01(seed, salt)),
+  );
+  const twoPi = Math.fround(2 * Math.fround(Math.PI));
+  const theta = Math.fround(
+    twoPi * statelessRandom01(seed, salt + 1),
+  );
+  const circleRadius = Math.fround(
+    Math.sqrt(Math.fround(1 - Math.fround(u * u))),
+  );
+  const sphereX = Math.fround(circleRadius * Math.fround(Math.cos(theta)));
+  const sphereY = Math.fround(circleRadius * Math.fround(Math.sin(theta)));
+  const volumeRadius = Math.fround(
+    Math.pow(
+      statelessRandom01(seed, salt + 2),
+      Math.fround(1 / Math.fround(3)),
+    ),
+  );
+  out[0] = Math.fround(volumeRadius * sphereX);
+  out[1] = Math.fround(volumeRadius * sphereY);
+  // Convert the Unity-space random vector to the reflected Three.js basis.
+  out[2] = Math.fround(-Math.fround(volumeRadius * u));
+}
+
+function writeOpenBrushFloatDirection(from: Vec3, to: Vec3, out: Vec3): void {
+  out[0] = Math.fround(
+    Math.fround(to[0] * OPEN_BRUSH_UNITS_PER_METER) -
+      Math.fround(from[0] * OPEN_BRUSH_UNITS_PER_METER),
+  );
+  out[1] = Math.fround(
+    Math.fround(to[1] * OPEN_BRUSH_UNITS_PER_METER) -
+      Math.fround(from[1] * OPEN_BRUSH_UNITS_PER_METER),
+  );
+  out[2] = Math.fround(
+    Math.fround(to[2] * OPEN_BRUSH_UNITS_PER_METER) -
+      Math.fround(from[2] * OPEN_BRUSH_UNITS_PER_METER),
+  );
+  normalizeUnityFloatVector(out);
+}
+
+function rotateByUnityQuaternionFloat(
+  q: readonly number[],
+  v: Vec3,
+  out: Vec3,
+): void {
+  const x = Math.fround(q[0]);
+  const y = Math.fround(q[1]);
+  const z = Math.fround(q[2]);
+  const w = Math.fround(q[3]);
+  const x2 = Math.fround(x * 2);
+  const y2 = Math.fround(y * 2);
+  const z2 = Math.fround(z * 2);
+  const xx = Math.fround(x * x2);
+  const yy = Math.fround(y * y2);
+  const zz = Math.fround(z * z2);
+  const xy = Math.fround(x * y2);
+  const xz = Math.fround(x * z2);
+  const yz = Math.fround(y * z2);
+  const wx = Math.fround(w * x2);
+  const wy = Math.fround(w * y2);
+  const wz = Math.fround(w * z2);
+  out[0] = Math.fround(
+    Math.fround(Math.fround(1 - Math.fround(yy + zz)) * v[0]) +
+      Math.fround(Math.fround(xy - wz) * v[1]) +
+      Math.fround(Math.fround(xz + wy) * v[2]),
+  );
+  out[1] = Math.fround(
+    Math.fround(Math.fround(xy + wz) * v[0]) +
+      Math.fround(Math.fround(1 - Math.fround(xx + zz)) * v[1]) +
+      Math.fround(Math.fround(yz - wx) * v[2]),
+  );
+  out[2] = Math.fround(
+    Math.fround(Math.fround(xz - wy) * v[0]) +
+      Math.fround(Math.fround(yz + wx) * v[1]) +
+      Math.fround(Math.fround(1 - Math.fround(xx + yy)) * v[2]),
+  );
+}
+
+function rotateAroundUnityAxisFloat(
+  input: Vec3,
+  axis: Vec3,
+  angleDegrees: number,
+  out: Vec3,
+): void {
+  const normalizedAxis: Vec3 = [axis[0], axis[1], axis[2]];
+  normalizeUnityFloatVector(normalizedAxis);
+  const halfRadians = Math.fround(
+    Math.fround(angleDegrees * Math.fround(Math.PI / 180)) * 0.5,
+  );
+  const sine = Math.fround(Math.sin(halfRadians));
+  const rotation: Quat = [
+    Math.fround(normalizedAxis[0] * sine),
+    Math.fround(normalizedAxis[1] * sine),
+    Math.fround(normalizedAxis[2] * sine),
+    Math.fround(Math.cos(halfRadians)),
+  ];
+  rotateByUnityQuaternionFloat(rotation, input, out);
+}
+
+function nextFloatAwayFromZero(value: number): number {
+  if (value === 0 || !Number.isFinite(value)) return value;
+  const magnitude = Math.abs(value);
+  if (magnitude < 2 ** -126) {
+    return Math.fround(value + Math.sign(value) * 2 ** -149);
+  }
+  const ulp = 2 ** (Math.floor(Math.log2(magnitude)) - 23);
+  return Math.fround(value + Math.sign(value) * ulp);
+}
+
+function computeOpenBrushSprayFrame(
+  tangent: Vec3,
+  pointerForward: Vec3,
+  pointerUp: Vec3,
+  outRight: Vec3,
+  outNormal: Vec3,
+): void {
+  const rightFromForward: Vec3 = [0, 0, 0];
+  const rightFromUp: Vec3 = [0, 0, 0];
+  crossUnityFloat(pointerForward, tangent, rightFromForward);
+  crossUnityFloat(pointerUp, tangent, rightFromUp);
+  // A cross product changes sign under the Unity-to-Three reflection.
+  rightFromForward[0] = Math.fround(-rightFromForward[0]);
+  rightFromForward[1] = Math.fround(-rightFromForward[1]);
+  rightFromForward[2] = Math.fround(-rightFromForward[2]);
+  rightFromUp[0] = Math.fround(-rightFromUp[0]);
+  rightFromUp[1] = Math.fround(-rightFromUp[1]);
+  rightFromUp[2] = Math.fround(-rightFromUp[2]);
+  const upWeight = Math.fround(Math.abs(dotUnityFloat(pointerForward, tangent)));
+  outRight[0] = Math.fround(
+    rightFromForward[0] + Math.fround(rightFromUp[0] * upWeight),
+  );
+  outRight[1] = Math.fround(
+    rightFromForward[1] + Math.fround(rightFromUp[1] * upWeight),
+  );
+  outRight[2] = Math.fround(
+    rightFromForward[2] + Math.fround(rightFromUp[2] * upWeight),
+  );
+  normalizeUnityFloatVector(outRight);
+  crossUnityFloat(tangent, outRight, outNormal);
+  outNormal[0] = Math.fround(-outNormal[0]);
+  outNormal[1] = Math.fround(-outNormal[1]);
+  outNormal[2] = Math.fround(-outNormal[2]);
+}
+
+function crossUnityFloat(a: Vec3, b: Vec3, out: Vec3): void {
+  out[0] = Math.fround(
+    Math.fround(a[1] * b[2]) - Math.fround(a[2] * b[1]),
+  );
+  out[1] = Math.fround(
+    Math.fround(a[2] * b[0]) - Math.fround(a[0] * b[2]),
+  );
+  out[2] = Math.fround(
+    Math.fround(a[0] * b[1]) - Math.fround(a[1] * b[0]),
+  );
+}
+
+function dotUnityFloat(a: Vec3, b: Vec3): number {
+  return Math.fround(
+    Math.fround(Math.fround(a[0] * b[0]) + Math.fround(a[1] * b[1])) +
+      Math.fround(a[2] * b[2]),
+  );
+}
+
+function normalizeUnityFloatVector(value: Vec3): boolean {
+  const lengthSquared = Math.fround(
+    Math.fround(
+      Math.fround(value[0] * value[0]) + Math.fround(value[1] * value[1]),
+    ) + Math.fround(value[2] * value[2]),
+  );
+  const length = Math.fround(Math.sqrt(lengthSquared));
+  if (length < EPSILON) return false;
+  value[0] = Math.fround(value[0] / length);
+  value[1] = Math.fround(value[1] / length);
+  value[2] = Math.fround(value[2] / length);
+  return true;
 }
 
 function generateGeniusParticleGeometry(
@@ -4883,112 +5379,6 @@ function clamp01(value: number): number {
   return value;
 }
 
-function writeSprayParticleQuad(
-  positions: Float32Array,
-  normals: Float32Array,
-  tangents: Float32Array,
-  colors: Float32Array,
-  uvs: Float32Array,
-  uv1s: Float32Array,
-  indices: Uint32Array,
-  bounds: BrushGeometryBounds,
-  quadIndex: number,
-  center: Vec3,
-  facing: Vec3,
-  right: Vec3,
-  normal: Vec3,
-  forwardScale: number,
-  rightScale: number,
-  color: Rgba,
-  opacity: number,
-  usesAtlas: boolean,
-  atlasCell: number,
-  hasLifetime: boolean,
-  birthTimeSeconds: number,
-): void {
-  const vertex = quadIndex * 4;
-  const atlasScale = usesAtlas ? 0.5 : 1;
-  const atlasU = usesAtlas ? (atlasCell % 2) * 0.5 : 0;
-  const atlasV = usesAtlas ? Math.floor(atlasCell / 2) * 0.5 : 0;
-  writeSprayParticleVertex(
-    positions, normals, tangents, colors, uvs, uv1s, bounds,
-    vertex, center, facing, right, normal, -forwardScale, rightScale,
-    color, opacity, atlasU, atlasV + atlasScale, hasLifetime, birthTimeSeconds,
-  );
-  writeSprayParticleVertex(
-    positions, normals, tangents, colors, uvs, uv1s, bounds,
-    vertex + 1, center, facing, right, normal, -forwardScale, -rightScale,
-    color, opacity, atlasU, atlasV, hasLifetime, birthTimeSeconds,
-  );
-  writeSprayParticleVertex(
-    positions, normals, tangents, colors, uvs, uv1s, bounds,
-    vertex + 2, center, facing, right, normal, forwardScale, rightScale,
-    color, opacity, atlasU + atlasScale, atlasV + atlasScale,
-    hasLifetime, birthTimeSeconds,
-  );
-  writeSprayParticleVertex(
-    positions, normals, tangents, colors, uvs, uv1s, bounds,
-    vertex + 3, center, facing, right, normal, forwardScale, -rightScale,
-    color, opacity, atlasU + atlasScale, atlasV, hasLifetime, birthTimeSeconds,
-  );
-  const indexOffset = quadIndex * 6;
-  indices[indexOffset] = vertex;
-  indices[indexOffset + 1] = vertex + 1;
-  indices[indexOffset + 2] = vertex + 3;
-  indices[indexOffset + 3] = vertex;
-  indices[indexOffset + 4] = vertex + 3;
-  indices[indexOffset + 5] = vertex + 2;
-}
-
-function writeSprayParticleVertex(
-  positions: Float32Array,
-  normals: Float32Array,
-  tangents: Float32Array,
-  colors: Float32Array,
-  uvs: Float32Array,
-  uv1s: Float32Array,
-  bounds: BrushGeometryBounds,
-  vertex: number,
-  center: Vec3,
-  facing: Vec3,
-  right: Vec3,
-  normal: Vec3,
-  forwardScale: number,
-  rightScale: number,
-  color: Rgba,
-  opacity: number,
-  u: number,
-  v: number,
-  hasLifetime: boolean,
-  birthTimeSeconds: number,
-): void {
-  const positionOffset = vertex * 3;
-  positions[positionOffset] =
-    center[0] + facing[0] * forwardScale + right[0] * rightScale;
-  positions[positionOffset + 1] =
-    center[1] + facing[1] * forwardScale + right[1] * rightScale;
-  positions[positionOffset + 2] =
-    center[2] + facing[2] * forwardScale + right[2] * rightScale;
-  normals[positionOffset] = normal[0];
-  normals[positionOffset + 1] = normal[1];
-  normals[positionOffset + 2] = normal[2];
-  writeTangent(tangents, vertex, facing, 1);
-  writeColor(colors, vertex, color, opacity);
-  const uvOffset = vertex * 2;
-  uvs[uvOffset] = u;
-  uvs[uvOffset + 1] = v;
-  if (hasLifetime) {
-    const uv1Offset = vertex * 4;
-    uv1s[uv1Offset] = facing[0] * forwardScale + right[0] * rightScale;
-    uv1s[uv1Offset + 1] =
-      facing[1] * forwardScale + right[1] * rightScale;
-    uv1s[uv1Offset + 2] =
-      facing[2] * forwardScale + right[2] * rightScale;
-    uv1s[uv1Offset + 3] = birthTimeSeconds;
-  }
-  includeBounds(bounds, positions, vertex);
-}
-
 function writeGeniusParticleQuad(
   positions: Float32Array,
   normals: Float32Array,
@@ -5156,6 +5546,12 @@ const EPSILON = 1e-6;
 const OPEN_BRUSH_RIBBON_MINIMUM_MOVE_METERS = 5e-4;
 const OPEN_BRUSH_TUBE_MINIMUM_MOVE_METERS = 5e-4;
 const OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL = 0.0025;
+
+// Open Brush generates in decimetres with Unity's single-precision vector
+// operations. Particle frames recover those source-scale floats from the
+// metre-based shared API before reproducing the frame calculation.
+const OPEN_BRUSH_UNITS_PER_METER = 10;
+const OPEN_BRUSH_TWO_PI_FLOAT = Math.fround(2 * Math.fround(Math.PI));
 
 function getLocalBrushSize(stroke: StrokeData): number {
   const brushScale = Number.isFinite(stroke.brushScale)

@@ -122,7 +122,7 @@ sceneLeft.add(dirLightLeft1.target);
 const tiltLoader = new TiltLoader();
 tiltLoader.setBrushPath('../brushes/'); 
 
-tiltLoader.load('./mother/sketch.tilt', async (promiseData) => {
+tiltLoader.load('./test-brushes/sketch.tilt', async (promiseData) => {
     try {
         const rawModel = await promiseData;
 
@@ -208,7 +208,7 @@ sceneRight.add(dirLightRight1.target);
 const gltfLoader = new GLTFLoader();
 gltfLoader.register(parser => new GLTFGoogleTiltBrushMaterialExtension(parser, '../brushes/', true));
 
-gltfLoader.load('./mother/sketch.gltf', async (gltf) => {
+gltfLoader.load('.//sketch.gltf', async (gltf) => {
 
     const userData = gltf.scene.userData || gltf.userData || {};
 
