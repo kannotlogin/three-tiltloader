@@ -2943,14 +2943,11 @@ function generateTubeGeometry(
     pointCount,
   );
   let runningDistance = 0;
+  let sectionStartPoint = 0;
+  let completedOpenBrushVertexCount = 0;
   
-  let u = random01;
-  if (options.geometryParams?.lightwireHack) {
-      const startRadius = localBrushSize * getPressureSizeMultiplier(tubeSmoothedPressures[0], pressureSizeMin) * 0.5;
-      const circ = Math.max(2 * Math.PI * startRadius, EPSILON);
-      const totalU = (totalStrokeLength * tileRate) / circ;
-      u = 0.53 - totalU;
-  }
+  const exactRandom01 = statelessRandom01(stroke.seed, -1);
+  let u = Math.fround(exactRandom01);
 
   // Frame state: right/up transported along the stroke by the tangent-to-
   // tangent rotation (MathUtils.ComputeMinimalRotationFrame), bootstrapped
@@ -2981,8 +2978,15 @@ function generateTubeGeometry(
         pointIndex,
       );
       runningDistance += segmentLength;
-      const circumference = Math.max(2 * Math.PI * radius, EPSILON);
-      u += (segmentLength * tileRate) / circumference;
+      
+      const radiusSource = Math.fround(radius * 10);
+      const circumferenceSource = Math.max(
+        Math.fround(Math.fround(2 * Math.fround(Math.PI)) * radiusSource),
+        1e-6
+      );
+      const uRate = Math.fround(Math.fround(tileRate) / circumferenceSource);
+      const segmentLengthSource = Math.fround(segmentLength * 10);
+      u = Math.fround(u + Math.fround(segmentLengthSource * uRate));
     }
     const progress =
       totalStrokeLength > EPSILON ? runningDistance / totalStrokeLength : 0;
@@ -3081,21 +3085,19 @@ function generateTubeGeometry(
           frameRight,
           frameUp,
         );
-        const sectionRandom01 = statelessRandom01(stroke.seed, pointIndex);
         
-        u = sectionRandom01;
-        if (options.geometryParams?.lightwireHack) {
-            let remainingLength = 0;
-            for(let i = pointIndex + 1; i < pointCount; i++) {
-                if (tubeBreakBefore[i] === 1) break;
-                remainingLength += distanceBetweenScratchPoints(geometrySmoothedPositions, i - 1, i);
-            }
-            const startRadius = localBrushSize * getPressureSizeMultiplier(tubeSmoothedPressures[pointIndex], pressureSizeMin) * 0.5;
-            const circ = Math.max(2 * Math.PI * startRadius, EPSILON);
-            const totalU = (remainingLength * tileRate) / circ;
-            u = 0.53 - totalU;
-        }
-
+        const completedSectionPointCount = pointIndex - sectionStartPoint;
+        completedOpenBrushVertexCount +=
+          completedSectionPointCount * ringVertexCount +
+          (hasCaps && completedSectionPointCount > 1 ? sideCount * 2 : 0);
+        sectionStartPoint = pointIndex;
+        
+        const sectionRandom01 = statelessRandom01(
+          stroke.seed,
+          completedOpenBrushVertexCount - 1,
+        );
+        
+        u = Math.fround(sectionRandom01);
         atlasRow = Math.floor(sectionRandom01 * 3331) % atlasRows;
         v0 = atlasRow / atlasRows;
         v1 = (atlasRow + 1) / atlasRows;
@@ -3349,11 +3351,27 @@ function generateTubeGeometry(
           capTip[2] =
             center[2] +
             capTangent[2] * radius * capAspect * direction;
-          const diagonal = radius * Math.hypot(1, capAspect);
-          const uRate = tileRate / Math.max(2 * Math.PI * radius, EPSILON);
+            
+          const radiusSource = Math.fround(radius * 10);
+          const circumferenceSource = Math.max(
+            Math.fround(Math.fround(2 * Math.fround(Math.PI)) * radiusSource),
+            1e-6
+          );
+          const uRate = Math.fround(Math.fround(tileRate) / circumferenceSource);
+          const diagonalSource = getOpenBrushTubeCapDiagonal(
+            center,
+            capUp,
+            capTangent,
+            radiusSource,
+            capAspect,
+            direction,
+          );
+          
           const capU = usesStretchUvs
             ? ringU
-            : ringU + direction * uRate * diagonal;
+            : Math.fround(
+                ringU + Math.fround(Math.fround(direction * uRate) * diagonalSource),
+              );
 
           for (let side = 0; side < sideCount; side += 1) {
             const vertex = capBase + side;
@@ -6069,4 +6087,27 @@ function includeBounds(
   if (z > bounds.max[2]) {
     bounds.max[2] = z;
   }
+}
+
+function getOpenBrushTubeCapDiagonal(
+  center: Vec3,
+  up: Vec3,
+  tangent: Vec3,
+  radiusSource: number,
+  capAspect: number,
+  direction: number,
+): number {
+  const aspect = Math.fround(capAspect);
+  let lengthSquared = 0;
+  for (let axis = 0; axis < 3; axis += 1) {
+    const centerSource = Math.fround(center[axis] * 10);
+    const circlePoint = Math.fround(centerSource + Math.fround(up[axis] * radiusSource));
+    const tipOffset = Math.fround(
+      Math.fround(Math.fround(tangent[axis] * radiusSource) * aspect) * direction
+    );
+    const tip = Math.fround(centerSource + tipOffset);
+    const delta = Math.fround(circlePoint - tip);
+    lengthSquared = Math.fround(lengthSquared + Math.fround(delta * delta));
+  }
+  return Math.fround(Math.sqrt(lengthSquared));
 }

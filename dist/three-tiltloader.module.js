@@ -2180,13 +2180,10 @@ function $6fafcf15f6b61d60$var$generateTubeGeometry(stroke, options, out) {
     const breakAngleMultiplier = $6fafcf15f6b61d60$var$normalizeTubeBreakAngleMultiplier(options.geometryParams?.tubeBreakAngleMultiplier);
     const totalStrokeLength = $6fafcf15f6b61d60$var$measureScratchPathLength(geometrySmoothedPositions, pointCount);
     let runningDistance = 0;
-    let u = random01;
-    if (options.geometryParams?.lightwireHack) {
-        const startRadius = localBrushSize * $6fafcf15f6b61d60$var$getPressureSizeMultiplier(tubeSmoothedPressures[0], pressureSizeMin) * 0.5;
-        const circ = Math.max(2 * Math.PI * startRadius, $6fafcf15f6b61d60$var$EPSILON);
-        const totalU = totalStrokeLength * tileRate / circ;
-        u = 0.53 - totalU;
-    }
+    let sectionStartPoint = 0;
+    let completedOpenBrushVertexCount = 0;
+    const exactRandom01 = $6fafcf15f6b61d60$var$statelessRandom01(stroke.seed, -1);
+    let u = Math.fround(exactRandom01);
     // Frame state: right/up transported along the stroke by the tangent-to-
     // tangent rotation (MathUtils.ComputeMinimalRotationFrame), bootstrapped
     // from the pointer orientation on the first knot.
@@ -2248,8 +2245,11 @@ function $6fafcf15f6b61d60$var$generateTubeGeometry(stroke, options, out) {
         if (pointIndex > 0) {
             segmentLength = $6fafcf15f6b61d60$var$distanceBetweenScratchPoints(geometrySmoothedPositions, pointIndex - 1, pointIndex);
             runningDistance += segmentLength;
-            const circumference = Math.max(2 * Math.PI * radius, $6fafcf15f6b61d60$var$EPSILON);
-            u += segmentLength * tileRate / circumference;
+            const radiusSource = Math.fround(radius * 10);
+            const circumferenceSource = Math.max(Math.fround(Math.fround(2 * Math.fround(Math.PI)) * radiusSource), 1e-6);
+            const uRate = Math.fround(Math.fround(tileRate) / circumferenceSource);
+            const segmentLengthSource = Math.fround(segmentLength * 10);
+            u = Math.fround(u + Math.fround(segmentLengthSource * uRate));
         }
         const progress = totalStrokeLength > $6fafcf15f6b61d60$var$EPSILON ? runningDistance / totalStrokeLength : 0;
         const shapeScale = $6fafcf15f6b61d60$var$getTubeShapeScale(shapeModifier, progress, pointIndex, pointCount, options.geometryParams?.tubeTaperScalar, 0);
@@ -2281,19 +2281,11 @@ function $6fafcf15f6b61d60$var$generateTubeGeometry(stroke, options, out) {
             if (segmentLength < $6fafcf15f6b61d60$var$OPEN_BRUSH_TUBE_MINIMUM_MOVE_METERS || pointIndex > 1 && previousSectionContinues && frameAngle > breakAngle) {
                 tubeBreakBefore[pointIndex] = 1;
                 $6fafcf15f6b61d60$var$initializeTubeFrame(point.orientation, tangent, bootstrapUp, frameRight, frameUp);
-                const sectionRandom01 = $6fafcf15f6b61d60$var$statelessRandom01(stroke.seed, pointIndex);
-                u = sectionRandom01;
-                if (options.geometryParams?.lightwireHack) {
-                    let remainingLength = 0;
-                    for(let i = pointIndex + 1; i < pointCount; i++){
-                        if (tubeBreakBefore[i] === 1) break;
-                        remainingLength += $6fafcf15f6b61d60$var$distanceBetweenScratchPoints(geometrySmoothedPositions, i - 1, i);
-                    }
-                    const startRadius = localBrushSize * $6fafcf15f6b61d60$var$getPressureSizeMultiplier(tubeSmoothedPressures[pointIndex], pressureSizeMin) * 0.5;
-                    const circ = Math.max(2 * Math.PI * startRadius, $6fafcf15f6b61d60$var$EPSILON);
-                    const totalU = remainingLength * tileRate / circ;
-                    u = 0.53 - totalU;
-                }
+                const completedSectionPointCount = pointIndex - sectionStartPoint;
+                completedOpenBrushVertexCount += completedSectionPointCount * ringVertexCount + (hasCaps && completedSectionPointCount > 1 ? sideCount * 2 : 0);
+                sectionStartPoint = pointIndex;
+                const sectionRandom01 = $6fafcf15f6b61d60$var$statelessRandom01(stroke.seed, completedOpenBrushVertexCount - 1);
+                u = Math.fround(sectionRandom01);
                 atlasRow = Math.floor(sectionRandom01 * 3331) % atlasRows;
                 v0 = atlasRow / atlasRows;
                 v1 = (atlasRow + 1) / atlasRows;
@@ -2478,9 +2470,11 @@ function $6fafcf15f6b61d60$var$generateTubeGeometry(stroke, options, out) {
                 capTip[0] = center[0] + capTangent[0] * radius * capAspect * direction;
                 capTip[1] = center[1] + capTangent[1] * radius * capAspect * direction;
                 capTip[2] = center[2] + capTangent[2] * radius * capAspect * direction;
-                const diagonal = radius * Math.hypot(1, capAspect);
-                const uRate = tileRate / Math.max(2 * Math.PI * radius, $6fafcf15f6b61d60$var$EPSILON);
-                const capU = usesStretchUvs ? ringU : ringU + direction * uRate * diagonal;
+                const radiusSource = Math.fround(radius * 10);
+                const circumferenceSource = Math.max(Math.fround(Math.fround(2 * Math.fround(Math.PI)) * radiusSource), 1e-6);
+                const uRate = Math.fround(Math.fround(tileRate) / circumferenceSource);
+                const diagonalSource = $6fafcf15f6b61d60$var$getOpenBrushTubeCapDiagonal(center, capUp, capTangent, radiusSource, capAspect, direction);
+                const capU = usesStretchUvs ? ringU : Math.fround(ringU + Math.fround(Math.fround(direction * uRate) * diagonalSource));
                 for(let side = 0; side < sideCount; side += 1){
                     const vertex = capBase + side;
                     const fraction = (side + 0.5) / sideCount;
@@ -4036,6 +4030,19 @@ function $6fafcf15f6b61d60$var$includeBounds(bounds, positions, vertex) {
     if (x > bounds.max[0]) bounds.max[0] = x;
     if (y > bounds.max[1]) bounds.max[1] = y;
     if (z > bounds.max[2]) bounds.max[2] = z;
+}
+function $6fafcf15f6b61d60$var$getOpenBrushTubeCapDiagonal(center, up, tangent, radiusSource, capAspect, direction) {
+    const aspect = Math.fround(capAspect);
+    let lengthSquared = 0;
+    for(let axis = 0; axis < 3; axis += 1){
+        const centerSource = Math.fround(center[axis] * 10);
+        const circlePoint = Math.fround(centerSource + Math.fround(up[axis] * radiusSource));
+        const tipOffset = Math.fround(Math.fround(Math.fround(tangent[axis] * radiusSource) * aspect) * direction);
+        const tip = Math.fround(centerSource + tipOffset);
+        const delta = Math.fround(circlePoint - tip);
+        lengthSquared = Math.fround(lengthSquared + Math.fround(delta * delta));
+    }
+    return Math.fround(Math.sqrt(lengthSquared));
 }
 
 
@@ -9366,7 +9373,6 @@ const $8fc1e38b542b44db$var$brushGeometryOverrides = {
     },
     "LightWire": {
         geometryParams: {
-            lightwireHack: true,
             tubeStoreRadiusInTexcoord0Z: true
         }
     },

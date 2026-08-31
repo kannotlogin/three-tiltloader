@@ -87,7 +87,6 @@ const brushGeometryOverrides = {
     },
     "LightWire": {
         geometryParams: {
-            lightwireHack: true,             
             tubeStoreRadiusInTexcoord0Z: true
         }
     },
