@@ -2,7 +2,7 @@ const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     let urlStr = args[0] instanceof Request ? args[0].url : String(args[0]);
 
-    if (urlStr.includes('sketch.bin')) {
+    if (urlStr.includes('mother/sketch.bin')) {
         args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/mother/sketch.bin';
         urlStr = args[0];
     } else if (urlStr.includes('tmp1352bc07.bin')) {
