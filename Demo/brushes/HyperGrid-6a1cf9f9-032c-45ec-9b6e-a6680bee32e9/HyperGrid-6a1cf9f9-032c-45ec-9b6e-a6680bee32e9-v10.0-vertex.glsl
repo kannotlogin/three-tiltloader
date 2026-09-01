@@ -40,24 +40,19 @@ uniform mat4 projectionMatrix;
 uniform mat3 normalMatrix;
 uniform mat4 u_SceneLight_0_matrix;
 uniform mat4 u_SceneLight_1_matrix;
-uniform bool u_isNewTiltExporter;
-
 uniform vec4 u_time;
 
 void main() {
   vec4 _Time = u_time;
-  vec4 worldPos = modelMatrix * a_position;
   float size = length(a_texcoord1.xyz);
+  vec4 localPos = a_position;
 
+  if (size > 0.0001) {
+    float q = (1.0 / size) * 0.5;
+    localPos.xyz = ceil(localPos.xyz * q) / q;
+  }
 
-
-
-	if (!u_isNewTiltExporter) {
-	  // Quantize vertices
-	  float q = (1. / size) * .5;
-	  worldPos.xyz = ceil(worldPos.xyz * q) / q;
-	}
-
+  vec4 worldPos = modelMatrix * localPos;
   gl_Position = projectionMatrix * viewMatrix * worldPos;
   // Transform normal and tangent to view space
   vec3 normal = normalize(normalMatrix * a_normal);
@@ -72,6 +67,6 @@ void main() {
   v_position = gl_Position.xyz;
   v_light_dir_0 = u_SceneLight_0_matrix[2].xyz;
   v_light_dir_1 = u_SceneLight_1_matrix[2].xyz;
-  v_color = 2. * a_color;
+  v_color = 2.0 * a_color;
   v_texcoord0 = a_texcoord0;
 }

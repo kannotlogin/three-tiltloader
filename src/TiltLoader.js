@@ -331,30 +331,6 @@ export class TiltLoader extends Loader {
             const materialName = this.tiltShaderLoader.lookupMaterialName(guidOrName);
             if (!materialName) continue;
 
-            if (materialName === "HyperGrid") {
-                for (const stroke of byBrush[brushIndexStr]) {
-                    if (stroke.controlPoints.length > 2) {
-                        const newCps = [stroke.controlPoints[0]];
-                        let lastPos = stroke.controlPoints[0].position;
-                        const spacing = 50.25; 
-                        for (let p = 1; p < stroke.controlPoints.length - 1; p++) {
-                            const cp = stroke.controlPoints[p];
-                            const dist = Math.hypot(
-                                cp.position[0] - lastPos[0],
-                                cp.position[1] - lastPos[1],
-                                cp.position[2] - lastPos[2]
-                            );
-                            if (dist >= spacing) {
-                                newCps.push(cp);
-                                lastPos = cp.position;
-                            }
-                        }
-                        newCps.push(stroke.controlPoints[stroke.controlPoints.length - 1]);
-                        stroke.controlPoints = newCps;
-                    }
-                }
-            }
-
             const dbEntry = brushDatabase[guidOrName];
 
             let family = dbEntry?.family || brushFamilyMap[materialName] || "ribbon";
