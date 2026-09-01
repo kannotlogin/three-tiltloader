@@ -4651,7 +4651,12 @@ function generateGeniusParticleGeometry(
     options.geometryParams?.particleRate,
     1,
   );
-  const spawnInterval = OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL / particleRate;
+  
+  const brushScale = Number.isFinite(stroke.brushScale)
+    ? Math.max(1e-6, stroke.brushScale)
+    : 1;
+  const spawnInterval = (OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL / particleRate) * brushScale;
+  
   const distanceRemainder =
     normalizeNonNegative(options.particleDistanceOffset) % spawnInterval;
   const totalLength = measureStrokeLength(stroke) + distanceRemainder;
@@ -5563,7 +5568,7 @@ const VEC_RIGHT: Vec3 = [1, 0, 0];
 const EPSILON = 1e-6;
 const OPEN_BRUSH_RIBBON_MINIMUM_MOVE_METERS = 5e-4;
 const OPEN_BRUSH_TUBE_MINIMUM_MOVE_METERS = 5e-4;
-const OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL = 0.0025;
+const OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL = 0.025;
 
 // Open Brush generates in decimetres with Unity's single-precision vector
 // operations. Particle frames recover those source-scale floats from the

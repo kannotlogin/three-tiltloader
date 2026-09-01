@@ -405,15 +405,6 @@ export class TiltLoader extends Loader {
                 }
             };
 
-            if (options.generatorClass === "GeniusParticlesBrush" && options.geometryParams.particleRate !== undefined) {
-                const particleMultipliers = {
-                    "Dots": 0.045, "Embers": 0.01, "Smoke": 0.01, 
-                    "Snow": 0.01, "Bubbles": 0.01, "Stars": 0.01     
-                };
-                const multiplier = particleMultipliers[materialName] !== undefined ? particleMultipliers[materialName] : 0.01;
-                options.geometryParams.particleRate *= multiplier; 
-            }
-
             const arraysList = [];
             const strokeTimeline = [];
             let cumulativeIndexCount = 0;

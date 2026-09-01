@@ -3192,7 +3192,8 @@ function $6fafcf15f6b61d60$var$generateGeniusParticleGeometry(stroke, options, o
     out.uv1Size = 4;
     const pointCount = stroke.controlPoints.length;
     const particleRate = $6fafcf15f6b61d60$var$normalizePositive(options.geometryParams?.particleRate, 1);
-    const spawnInterval = $6fafcf15f6b61d60$var$OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL / particleRate;
+    const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1;
+    const spawnInterval = $6fafcf15f6b61d60$var$OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL / particleRate * brushScale;
     const distanceRemainder = $6fafcf15f6b61d60$var$normalizeNonNegative(options.particleDistanceOffset) % spawnInterval;
     const totalLength = $6fafcf15f6b61d60$var$measureStrokeLength(stroke) + distanceRemainder;
     const finalizedParticleCount = pointCount === 0 ? 0 : Math.floor(totalLength / spawnInterval) + 1;
@@ -3695,7 +3696,7 @@ const $6fafcf15f6b61d60$var$VEC_RIGHT = [
 const $6fafcf15f6b61d60$var$EPSILON = 1e-6;
 const $6fafcf15f6b61d60$var$OPEN_BRUSH_RIBBON_MINIMUM_MOVE_METERS = 5e-4;
 const $6fafcf15f6b61d60$var$OPEN_BRUSH_TUBE_MINIMUM_MOVE_METERS = 5e-4;
-const $6fafcf15f6b61d60$var$OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL = 0.0025;
+const $6fafcf15f6b61d60$var$OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL = 0.025;
 // Open Brush generates in decimetres with Unity's single-precision vector
 // operations. Particle frames recover those source-scale floats from the
 // metre-based shared API before reproducing the frame calculation.
@@ -9644,18 +9645,6 @@ class $8fc1e38b542b44db$export$36ca96fcead4fad7 extends (0, $rINUR$Loader) {
                     ...legacyOverride.geometryParams || {}
                 }
             };
-            if (options.generatorClass === "GeniusParticlesBrush" && options.geometryParams.particleRate !== undefined) {
-                const particleMultipliers = {
-                    "Dots": 0.045,
-                    "Embers": 0.01,
-                    "Smoke": 0.01,
-                    "Snow": 0.01,
-                    "Bubbles": 0.01,
-                    "Stars": 0.01
-                };
-                const multiplier = particleMultipliers[materialName] !== undefined ? particleMultipliers[materialName] : 0.01;
-                options.geometryParams.particleRate *= multiplier;
-            }
             const arraysList = [];
             const strokeTimeline = [];
             let cumulativeIndexCount = 0;
