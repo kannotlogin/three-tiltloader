@@ -3196,7 +3196,7 @@ function $6fafcf15f6b61d60$var$generateGeniusParticleGeometry(stroke, options, o
     const spawnInterval = $6fafcf15f6b61d60$var$OPEN_BRUSH_GENIUS_PARTICLE_INTERVAL / particleRate * brushScale;
     const distanceRemainder = $6fafcf15f6b61d60$var$normalizeNonNegative(options.particleDistanceOffset) % spawnInterval;
     const totalLength = $6fafcf15f6b61d60$var$measureStrokeLength(stroke) + distanceRemainder;
-    const finalizedParticleCount = pointCount === 0 ? 0 : Math.floor(totalLength / spawnInterval) + 1;
+    const finalizedParticleCount = pointCount === 0 ? 0 : Math.max(1, Math.floor(totalLength / spawnInterval));
     const particleCount = finalizedParticleCount + (pointCount > 0 && options.finalized !== true ? 1 : 0);
     const vertexCount = particleCount * 4;
     const indexCount = particleCount * 6;
