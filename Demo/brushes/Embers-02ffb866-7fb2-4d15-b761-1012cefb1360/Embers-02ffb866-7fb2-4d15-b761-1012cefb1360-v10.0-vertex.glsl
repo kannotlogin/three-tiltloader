@@ -130,7 +130,7 @@ void main() {
   vec3 worldPos = (modelMatrix * pos).xyz;
 
   dispVec.x += sin(t * u_ScrollJitterFrequency + a_color.a * 100.0 + t2 + worldPos.z) * u_ScrollJitterIntensity;
-  dispVec.y += (mod(a_color.a * 100.0, 1.0) - 0.5) * u_ScrollDistance.y * t;
+  dispVec.y += (mod(a_color.a * 100.0, 1.0) + 0.5) * u_ScrollDistance.y * t;
   dispVec.z += cos(t * u_ScrollJitterFrequency + a_color.a * 100.0 + t2 + worldPos.x) * u_ScrollJitterIntensity;
 
   worldPos.xyz += dispVec.xyz;
