@@ -33,7 +33,17 @@
 </head>
 <body>
 
-    <audio id="music-player" controls src="./music.mp3" style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100;"></audio>
+    <audio id="music-player" controls src="./music.mp3" style="position: absolute; top: 20px; left: 25%; transform: translateX(-50%); z-index: 100;"></audio>
+
+    <div style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100; background: rgba(0,0,0,0.8); padding: 8px 15px; border-radius: 8px; border: 1px solid #444; display: flex; align-items: center; gap: 10px;">
+        <label for="sketch-select" style="font-weight: bold; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Choose model:</label>
+        <select id="sketch-select" style="padding: 5px; background: #222; color: white; border: 1px solid #555; border-radius: 4px; font-size: 14px; cursor: pointer; outline: none;">
+            <option value="rick and morty">Rick and Morty</option>
+            <option value="mother">Mother</option>
+            <option value="The Upside Down">The Upside Down</option>
+            <option value="test-brushes">Test Brushes</option>
+        </select>
+    </div>
 
     <div id="left-view" class="split">
         <div class="label">

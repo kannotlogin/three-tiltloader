@@ -1,18 +1,27 @@
+const SKETCH_FOLDERS = ['rick and morty', 'mother', 'The Upside Down', 'test-brushes'];
+
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     let urlStr = args[0] instanceof Request ? args[0].url : String(args[0]);
+    let decodedUrl = urlStr;
+    try { decodedUrl = decodeURIComponent(urlStr); } catch(e) {}
 
-    if (urlStr.includes('mother/sketch.bin')) {
-        args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/mother/sketch.bin';
-        urlStr = args[0];
-    } else if (urlStr.includes('tmp1352bc07.bin')) {
+    for (const folder of SKETCH_FOLDERS) {
+        if (decodedUrl.includes(`${folder}/sketch.bin`)) {
+            args[0] = `https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/${encodeURIComponent(folder)}/sketch.bin`;
+            urlStr = args[0];
+        } else if (decodedUrl.includes(`${folder}/Extra-Models/`)) {
+            const filename = decodedUrl.split('/').pop();
+            args[0] = `https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/${encodeURIComponent(folder)}/Extra-Models/${filename}`;
+            urlStr = args[0];
+        }
+    }
+
+    if (decodedUrl.includes('tmp1352bc07.bin')) {
         args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/The%20Upside%20Down/tmp1352bc07.bin';
         urlStr = args[0];
-    } else if (urlStr.includes('milkyway.psd')) {
+    } else if (decodedUrl.includes('milkyway.psd')) {
         args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/src/data/Cubemaps/milkyway.psd';
-        urlStr = args[0];
-    } else if (urlStr.includes('rick%20and%20morty/sketch.bin')) {
-        args[0] = 'https://media.githubusercontent.com/media/kannotlogin/three-tiltloader/main/Demo/rick%20and%20morty/sketch.bin';
         urlStr = args[0];
     }
 
@@ -55,12 +64,45 @@ const audioListener = new THREE.AudioListener();
 const sound = new THREE.Audio(audioListener);
 let analyser;
 
+const urlParams = new URLSearchParams(window.location.search);
+const currentFolder = urlParams.get('sketch') || 'rick and morty';
+
 window.addEventListener('DOMContentLoaded', () => {
     const audioElement = document.getElementById('music-player');
     const audioSource = audioListener.context.createMediaElementSource(audioElement);
     sound.setNodeSource(audioSource);
     analyser = new THREE.AudioAnalyser(sound, 32);
+
+    const selectEl = document.getElementById('sketch-select');
+    if (selectEl) {
+        selectEl.value = currentFolder;
+        selectEl.addEventListener('change', (e) => {
+            window.location.search = `?sketch=${encodeURIComponent(e.target.value)}`;
+        });
+    }
 });
+
+function fitCameraToModel(camera, controls, model) {
+    const box = new THREE.Box3().setFromObject(model);
+    if (box.isEmpty()) return;
+
+    const size = new THREE.Vector3(); box.getSize(size);
+    const center = new THREE.Vector3(); box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    
+    const fov = camera.fov * (Math.PI / 180);
+    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+    cameraZ *= 1.5;
+    
+    camera.position.set(center.x, center.y + (maxDim * 0.2), center.z + cameraZ);
+    camera.near = maxDim / 100;
+    camera.far = cameraZ * 100;
+    camera.updateProjectionMatrix();
+
+    controls.target.copy(center);
+    controls.maxDistance = cameraZ * 10;
+    controls.update();
+}
 
 function centerAndScaleModel(model, targetSize) {
     const box = new THREE.Box3().setFromObject(model);
@@ -125,7 +167,7 @@ sceneLeft.add(dirLightLeft1.target);
 const tiltLoader = new TiltLoader();
 tiltLoader.setBrushPath('../brushes/'); 
 
-const tiltFilePath = './rick and morty/sketch.tilt';
+const tiltFilePath = `./${currentFolder}/sketch.tilt`;
 const tiltDir = tiltFilePath.substring(0, tiltFilePath.lastIndexOf('/') + 1);
 
 tiltLoader.load(tiltFilePath, async (promiseData) => {
@@ -205,6 +247,7 @@ tiltLoader.load(tiltFilePath, async (promiseData) => {
             tryApplyEnvironmentToLeft();
         }
 
+        fitCameraToModel(cameraLeft, controlsLeft, rawModel);
         setupPlayback(rawModel);
         console.log("Tilt model loaded!");
     } catch (e) {
@@ -247,7 +290,7 @@ sceneRight.add(dirLightRight1.target);
 const gltfLoader = new GLTFLoader();
 gltfLoader.register(parser => new GLTFGoogleTiltBrushMaterialExtension(parser, '../brushes/', true));
 
-gltfLoader.load('./rick and morty/sketch.gltf', async (gltf) => {
+gltfLoader.load(`./${currentFolder}/sketch.gltf`, async (gltf) => {
 
     const userData = gltf.scene.userData || gltf.userData || {};
 
@@ -287,8 +330,10 @@ gltfLoader.load('./rick and morty/sketch.gltf', async (gltf) => {
     gltf.scene.position.sub(centerRight);
 
     sceneRight.add(gltf.scene);
+    
+    fitCameraToModel(cameraRight, controlsRight, gltf.scene);
     console.log("GLTF model loaded with original lighting!");
-}, undefined, (err) => console.error("Error in GLTFLoader:", err));
+}, undefined, () => {});
 
 
 // ==========================================
