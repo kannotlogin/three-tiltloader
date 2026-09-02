@@ -5271,10 +5271,13 @@ function prepareRibbonSmoothedPressures(
     ? 0
     : clamp01(stroke.controlPoints[0].pressure);
   
+  const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1.0;
+  const smoothingWindow = 1.0 * brushScale;
+  
   for(let index = 1; index < pointCount; index += 1){
       if (isM11FlatGeometry) {
           const distance = distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-          const retained = Math.pow(0.1, distance / 1.0);
+          const retained = Math.pow(0.1, distance / smoothingWindow);
           pressures[index] = retained * pressures[index - 1] + (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
       } else {
           pressures[index] = clamp01(stroke.controlPoints[index].pressure);
@@ -5295,10 +5298,13 @@ function prepareTubeSmoothedPressures(
   const isM11 = options.geometryParams?.m11Compatibility === true;
   pressures[0] = isM11 ? 0 : clamp01(stroke.controlPoints[0].pressure);
 
+  const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1.0;
+  const smoothingWindow = 1.0 * brushScale;
+
   for(let index = 1; index < pointCount; index += 1){
       if (isM11) {
           const distance = distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-          const retained = Math.pow(0.1, distance / 1.0);
+          const retained = Math.pow(0.1, distance / smoothingWindow);
           pressures[index] = retained * pressures[index - 1] + (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
       } else {
           pressures[index] = clamp01(stroke.controlPoints[index].pressure);
@@ -5319,10 +5325,13 @@ function prepareGeometrySmoothedPressures(
   const isM11 = options.geometryParams?.m11Compatibility === true;
   pressures[0] = isM11 ? 0 : clamp01(stroke.controlPoints[0].pressure);
   
+  const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1.0;
+  const smoothingWindow = 1.0 * brushScale;
+  
   for(let index = 1; index < pointCount; index += 1){
       if (isM11) {
           const distance = distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-          const retained = Math.pow(0.1, distance / 1.0);
+          const retained = Math.pow(0.1, distance / smoothingWindow);
           pressures[index] = retained * pressures[index - 1] + (1 - retained) * clamp01(stroke.controlPoints[index].pressure);
       } else {
           pressures[index] = clamp01(stroke.controlPoints[index].pressure);

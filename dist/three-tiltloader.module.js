@@ -3539,9 +3539,11 @@ function $6fafcf15f6b61d60$var$prepareRibbonSmoothedPressures(stroke, options, o
     if (pointCount === 0) return;
     const isM11FlatGeometry = options.generatorClass === "FlatGeometryBrush" && options.geometryParams?.m11Compatibility === true;
     pressures[0] = isM11FlatGeometry ? 0 : $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[0].pressure);
+    const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1.0;
+    const smoothingWindow = 1.0 * brushScale;
     for(let index = 1; index < pointCount; index += 1)if (isM11FlatGeometry) {
         const distance = $6fafcf15f6b61d60$var$distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-        const retained = Math.pow(0.1, distance / 1.0);
+        const retained = Math.pow(0.1, distance / smoothingWindow);
         pressures[index] = retained * pressures[index - 1] + (1 - retained) * $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
     } else pressures[index] = $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
 }
@@ -3551,9 +3553,11 @@ function $6fafcf15f6b61d60$var$prepareTubeSmoothedPressures(stroke, options, out
     if (pointCount === 0) return;
     const isM11 = options.geometryParams?.m11Compatibility === true;
     pressures[0] = isM11 ? 0 : $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[0].pressure);
+    const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1.0;
+    const smoothingWindow = 1.0 * brushScale;
     for(let index = 1; index < pointCount; index += 1)if (isM11) {
         const distance = $6fafcf15f6b61d60$var$distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-        const retained = Math.pow(0.1, distance / 1.0);
+        const retained = Math.pow(0.1, distance / smoothingWindow);
         pressures[index] = retained * pressures[index - 1] + (1 - retained) * $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
     } else pressures[index] = $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
 }
@@ -3563,9 +3567,11 @@ function $6fafcf15f6b61d60$var$prepareGeometrySmoothedPressures(stroke, options,
     if (pointCount === 0) return;
     const isM11 = options.geometryParams?.m11Compatibility === true;
     pressures[0] = isM11 ? 0 : $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[0].pressure);
+    const brushScale = Number.isFinite(stroke.brushScale) ? Math.max(1e-6, stroke.brushScale) : 1.0;
+    const smoothingWindow = 1.0 * brushScale;
     for(let index = 1; index < pointCount; index += 1)if (isM11) {
         const distance = $6fafcf15f6b61d60$var$distanceBetweenControlPoints(stroke.controlPoints[index - 1], stroke.controlPoints[index]);
-        const retained = Math.pow(0.1, distance / 1.0);
+        const retained = Math.pow(0.1, distance / smoothingWindow);
         pressures[index] = retained * pressures[index - 1] + (1 - retained) * $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
     } else pressures[index] = $6fafcf15f6b61d60$var$clamp01(stroke.controlPoints[index].pressure);
 }
