@@ -35,7 +35,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFGoogleTiltBrushMaterialExtension } from 'three-icosa';
 
-import { 
+import {
     TiltLoader,
     fixTiltMeshLighting,
     forceDoubleSide,
@@ -122,7 +122,10 @@ sceneLeft.add(dirLightLeft1.target);
 const tiltLoader = new TiltLoader();
 tiltLoader.setBrushPath('../brushes/'); 
 
-tiltLoader.load('./test-brushes/sketch.tilt', async (promiseData) => {
+const tiltFilePath = './rick and morty/sketch.tilt';
+const tiltDir = tiltFilePath.substring(0, tiltFilePath.lastIndexOf('/') + 1);
+
+tiltLoader.load(tiltFilePath, async (promiseData) => {
     try {
         const rawModel = await promiseData;
 
@@ -150,6 +153,39 @@ tiltLoader.load('./test-brushes/sketch.tilt', async (promiseData) => {
 
         sceneLeft.add(rawModel);
         leftSceneReadyForEnvironment = true;
+
+        // 3D loading
+        if (tiltMeta && tiltMeta.ModelIndex) {
+            tiltMeta.ModelIndex.forEach(item => {
+                if (item.AssetId) {
+                    const modelPath = `${tiltDir}extra-models/${item.AssetId}.glb`;
+
+                    const extGltfLoader = new GLTFLoader();
+                    extGltfLoader.load(modelPath, function (gltfExt) {
+                        const baseModel = gltfExt.scene;
+
+                        if (item.RawTransforms && item.RawTransforms.length > 0) {
+                            item.RawTransforms.forEach(transform => {
+                                const pos = transform[0];
+                                const rot = transform[1];
+                                const scl = transform[2];
+
+                                const instance = baseModel.clone();
+
+                                instance.position.set(pos[0], pos[1], -pos[2]);
+                                instance.quaternion.set(-rot[0], -rot[1], rot[2], rot[3]);
+                                instance.scale.setScalar(scl);
+
+                                rawModel.add(instance);
+                            });
+                            console.log(`Extra model loaded: ${item.AssetId}`);
+                        }
+                    }, undefined, (err) => {
+                        console.warn(`Missing 3D model for AssetId: "${item.AssetId}". Place the file in the extra-models folder.`);
+                    });
+                }
+            });
+        }
 
         const envDb = await loadEnvironmentDatabase();
         const cubemapDb = await loadCubemapDatabase(); 
@@ -208,7 +244,7 @@ sceneRight.add(dirLightRight1.target);
 const gltfLoader = new GLTFLoader();
 gltfLoader.register(parser => new GLTFGoogleTiltBrushMaterialExtension(parser, '../brushes/', true));
 
-gltfLoader.load('.//sketch.gltf', async (gltf) => {
+gltfLoader.load('./rick and morty/sketch.gltf', async (gltf) => {
 
     const userData = gltf.scene.userData || gltf.userData || {};
 
