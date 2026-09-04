@@ -24,12 +24,23 @@ uniform sampler2D u_AlphaMask;
 uniform vec4 u_AlphaMask_TexelSize;
 uniform vec4 u_time;
 
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
+
 in vec4 v_color;
 in vec2 v_texcoord0;
 
 void main() {
+  float audioActive = step(0.001, u_AudioVolume);
+  float trebleBeat = pow(u_BeatFFT.w, 2.0);
+
+  float timeNormal = u_time.y * -u_Speed;
+  float accumBeat = u_time.x * 2.0 + trebleBeat * 5.0;
+  float timeAudio = accumBeat * -u_Speed;
+  
   // Set up some staggered scrolling for "fire" effect
-  float time = u_time.y * -u_Speed;
+  float time = mix(timeNormal, timeAudio, audioActive);
+  
   vec2 scrollUV = v_texcoord0;
   vec2 scrollUV2 = v_texcoord0;
   vec2 scrollUV3 = v_texcoord0;
@@ -61,4 +72,3 @@ void main() {
   fragColor.rgb = (tex * v_color).rgb;
   fragColor.a = 1.0;
 }
-

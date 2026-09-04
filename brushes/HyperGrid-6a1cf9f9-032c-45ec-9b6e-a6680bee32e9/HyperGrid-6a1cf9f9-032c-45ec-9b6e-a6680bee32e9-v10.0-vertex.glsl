@@ -42,23 +42,35 @@ uniform mat4 u_SceneLight_0_matrix;
 uniform mat4 u_SceneLight_1_matrix;
 uniform vec4 u_time;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 void main() {
   vec4 _Time = u_time;
   float size = length(a_texcoord1.xyz);
   vec4 localPos = a_position;
 
+  float audioActive = step(0.001, u_AudioVolume);
+
   if (size > 0.0001) {
     float q = (1.0 / size) * 0.5;
-    localPos.xyz = ceil(localPos.xyz * q) / q;
+    vec3 activePos = localPos.xyz;
+
+    if (audioActive > 0.5) {
+      float beatAccumX = _Time.y * 3.0 + u_BeatFFT.x * 3.0;
+      float s = sin(beatAccumX * 2.0 + activePos.x * 5.0);
+      
+      activePos.y += 0.3 * (s * pow(abs(s), 4.0)) * (0.5 + u_BeatFFT.x);
+    }
+
+    localPos.xyz = ceil(activePos * q) / q;
   }
 
   vec4 worldPos = modelMatrix * localPos;
   gl_Position = projectionMatrix * viewMatrix * worldPos;
-  // Transform normal and tangent to view space
+  
   vec3 normal = normalize(normalMatrix * a_normal);
   vec3 tangent = normalize(normalMatrix * a_tangent.xyz);
-  
-  // Compute bitangent using cross product and handedness
   vec3 bitangent = cross(normal, tangent) * a_tangent.w;
   
   v_normal = normal;
@@ -67,6 +79,10 @@ void main() {
   v_position = gl_Position.xyz;
   v_light_dir_0 = u_SceneLight_0_matrix[2].xyz;
   v_light_dir_1 = u_SceneLight_1_matrix[2].xyz;
-  v_color = 2.0 * a_color;
+  
+  vec4 baseColor = 2.0 * a_color;
+  vec4 audioColor = 2.0 * a_color + a_color.gbra * u_BeatFFT.x;
+  v_color = mix(baseColor, audioColor, audioActive);
+  
   v_texcoord0 = a_texcoord0;
 }

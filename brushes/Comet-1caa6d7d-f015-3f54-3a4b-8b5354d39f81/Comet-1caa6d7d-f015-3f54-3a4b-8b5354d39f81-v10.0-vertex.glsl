@@ -50,8 +50,19 @@ uniform mat3 normalMatrix;
 uniform mat4 u_SceneLight_0_matrix;
 uniform mat4 u_SceneLight_1_matrix;
 
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
+
 void main() {
-  gl_Position = projectionMatrix * modelViewMatrix * a_position;
+  vec4 worldPos = a_position;
+  
+  float audioActive = step(0.001, u_AudioVolume);
+  float lowMidBeat = pow(u_BeatFFT.y, 3.0);
+  
+  vec3 displacement = lowMidBeat * a_normal * 0.15 * clamp(1.0 - smoothstep(0.0, 0.3, a_texcoord0.x), 0.0, 1.0);
+  worldPos.xyz += mix(vec3(0.0), displacement, audioActive);
+  
+  gl_Position = projectionMatrix * modelViewMatrix * worldPos;
   f_fog_coord = gl_Position.z;
   // Transform normal and tangent to view space
   vec3 normal = normalize(normalMatrix * a_normal);
@@ -63,7 +74,7 @@ void main() {
   v_normal = normal;
   v_tangent = tangent;
   v_bitangent = bitangent;
-  v_position = (modelViewMatrix * a_position).xyz;
+  v_position = (modelViewMatrix * worldPos).xyz;
   v_light_dir_0 = mat3(u_SceneLight_0_matrix) * vec3(0, 0, 1);
   v_light_dir_1 = mat3(u_SceneLight_1_matrix) * vec3(0, 0, 1);
   v_color = a_color;

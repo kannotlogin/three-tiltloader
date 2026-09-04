@@ -13,9 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Brush-specific shader for GlTF web preview, based on General generator
-// with parameters lit=1, a=0.5.
-
 precision mediump float;
 
 out vec4 fragColor;
@@ -28,6 +25,9 @@ uniform vec4 u_SceneLight_1_color;
 uniform float u_Cutoff;
 uniform sampler2D u_MainTex;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 in vec4 v_color;
 in vec3 v_normal;
 in vec3 v_position;
@@ -38,41 +38,8 @@ in float f_fog_coord;
 
 float dispAmount = .0025;
 
-// Copyright 2020 The Tilt Brush Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// Copyright 2020 The Tilt Brush Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// Requires a global constant "float dispAmount"
-// TODO: turn it into a parameter!
-
-
 uniform vec4 u_BumpMap_TexelSize;
 
-// HACK: Workaround for GPUs which struggle with vec3/vec2 derivatives.
 vec3 xxx_dFdx3(vec3 v) {
   return vec3(dFdx(v.x), dFdx(v.y), dFdx(v.z));
 }
@@ -85,17 +52,9 @@ vec2 xxx_dFdx2(vec2 v) {
 vec2 xxx_dFdy2(vec2 v) {
   return vec2(dFdy(v.x), dFdy(v.y));
 }
-// </HACK>
-
-
-
-
-
-
 
 vec3 computeLighting(vec3 normal, vec3 specColor, float shininess) {
   if (!gl_FrontFacing) {
-    // Always use front-facing normal for double-sided surfaces.
     normal *= -1.0;
   }
   vec3 lightDir0 = normalize(v_light_dir_0);
@@ -111,10 +70,16 @@ vec3 computeLighting(vec3 normal, vec3 specColor, float shininess) {
 }
 
 void main() {
+  float audioActive = step(0.001, u_AudioVolume);
   vec2 scrollUV = v_texcoord0;
 
-  // Animate flipbook motion. Currently tuned to taste.
-  float anim = ceil(mod(u_time.y * 12.0, 6.0));
+  float animNormal = ceil(mod(u_time.y * 12.0, 6.0));
+  
+  float beatJump = pow(u_BeatFFT.x, 3.0) * 15.0;
+  float animAudio = ceil(mod(u_time.y * 2.0 + beatJump, 6.0));
+  
+  float anim = mix(animNormal, animAudio, audioActive);
+  
   scrollUV.x += anim;
   scrollUV.x *= 1.1;
 
@@ -123,7 +88,7 @@ void main() {
   float brush_mask = texture(u_MainTex, scrollUV).w * v_color.a;
 
   if (brush_mask <= u_Cutoff) {
-	  discard;
+    discard;
   }
 
   fragColor.rgb = ApplyFog(computeLighting(v_normal, specColor, shininess), f_fog_coord);

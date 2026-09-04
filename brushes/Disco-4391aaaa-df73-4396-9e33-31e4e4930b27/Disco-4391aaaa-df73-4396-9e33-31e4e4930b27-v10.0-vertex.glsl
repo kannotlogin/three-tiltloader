@@ -45,6 +45,8 @@ uniform mat4 u_SceneLight_1_matrix;
 uniform bool u_isNewTiltExporter;
 
 uniform vec4 u_time;
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
 
 void main() {
 
@@ -58,11 +60,27 @@ void main() {
     }
   }
 
-  t = u_time.z;
-  uTileRate = 10.0;
-  waveIntensity = .6;
+  float audioActive = step(0.001, u_AudioVolume);
+  float highMidBeat = pow(u_BeatFFT.z, 2.0);
+  float lowMidBeat = pow(u_BeatFFT.y, 2.0);
+
+  float t_normal = u_time.z;
+  float uTileRate_normal = 10.0;
+  float waveIntensity_normal = 0.6;
+
+  float t_audio = u_time.y * 5.0 + highMidBeat * 5.0;
+  float uTileRate_audio = 5.0;
+  float waveIntensity_audio = (lowMidBeat * 0.8 + 0.5);
+
+  t = mix(t_normal, t_audio, audioActive);
+  uTileRate = mix(uTileRate_normal, uTileRate_audio, audioActive);
+  waveIntensity = mix(waveIntensity_normal, waveIntensity_audio, audioActive);
 
   vec4 pos = a_position;
+  
+  float waveform = sin(a_texcoord0.x * 20.0 + u_time.y * 10.0) * highMidBeat * 0.2; 
+  pos.xyz += mix(vec3(0.0), waveform * a_normal.xyz, audioActive);
+
   //Ensure the t parameter wraps (1.0 becomes 0.0) to avoid cracks at the seam.
   float theta = mod(a_texcoord0.y, 1.0);
 

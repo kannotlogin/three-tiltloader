@@ -13,21 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Copyright 2020 The Tilt Brush Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// DefaultVS.glsl
 in vec4 a_position;
 in vec3 a_normal;
 in vec4 a_color;
@@ -50,20 +35,37 @@ uniform mat3 normalMatrix;
 uniform mat4 u_SceneLight_0_matrix;
 uniform mat4 u_SceneLight_1_matrix;
 
+uniform highp vec4 u_time;
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
+
 void main() {
-  gl_Position = projectionMatrix * modelViewMatrix * a_position;
+  vec4 pos = a_position;
+  
+  float audioActive = step(0.001, u_AudioVolume);
+  float highMidBeat = pow(u_BeatFFT.z, 2.0);
+  
+  float strokeWidth = abs(a_texcoord0.y) * 1.2;
+  float t = u_time.y * 5.0 + highMidBeat * 5.0;
+  float waveIntensity = highMidBeat * 0.1 * strokeWidth;
+  
+  vec3 audioDisp = pow(1.0 - (sin(t + a_texcoord0.x * 5.0 + a_texcoord0.y * 10.0) + 1.0), 2.0)
+                   * cross(a_tangent.xyz, a_normal)
+                   * waveIntensity;
+                   
+  pos.xyz += mix(vec3(0.0), audioDisp, audioActive);
+
+  gl_Position = projectionMatrix * modelViewMatrix * pos;
   f_fog_coord = gl_Position.z;
-  // Transform normal and tangent to view space
+  
   vec3 normal = normalize(normalMatrix * a_normal);
   vec3 tangent = normalize(normalMatrix * a_tangent.xyz);
-  
-  // Compute bitangent using cross product and handedness
   vec3 bitangent = cross(normal, tangent) * a_tangent.w;
   
   v_normal = normal;
   v_tangent = tangent;
   v_bitangent = bitangent;
-  v_position = (modelViewMatrix * a_position).xyz;
+  v_position = (modelViewMatrix * pos).xyz;
   v_light_dir_0 = mat3(u_SceneLight_0_matrix) * vec3(0, 0, 1);
   v_light_dir_1 = mat3(u_SceneLight_1_matrix) * vec3(0, 0, 1);
   v_color = a_color;

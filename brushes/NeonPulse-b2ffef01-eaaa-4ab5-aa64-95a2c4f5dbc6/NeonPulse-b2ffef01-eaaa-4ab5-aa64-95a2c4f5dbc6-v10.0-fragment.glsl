@@ -13,9 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Brush-specific shader for GlTF web preview, based on General generator
-// with parameters lit=1, a=0.5.
-
 precision mediump float;
 
 out vec4 fragColor;
@@ -30,6 +27,9 @@ uniform sampler2D u_MainTex;
 uniform vec4 u_time;
 uniform float _EmissionGain;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 in vec4 v_color;
 in vec3 v_normal;
 in vec3 v_position;
@@ -37,17 +37,9 @@ in vec3 v_light_dir_0;
 in vec3 v_light_dir_1;
 in vec2 v_texcoord0;
 
-
-
-
-
-
-
-
 vec3 computeLighting() {
   vec3 normal = normalize(v_normal);
   if (!gl_FrontFacing) {
-    // Always use front-facing normal for double-sided surfaces.
     normal *= -1.0;
   }
   vec3 lightDir0 = normalize(v_light_dir_0);
@@ -72,9 +64,14 @@ vec4 bloomColor(vec4 color, float gain) {
 }
 
 void main() {
+  float audioActive = step(0.001, u_AudioVolume);
   fragColor.rgb = computeLighting();
   vec2 uv = v_texcoord0;
-  uv.x -= u_time.x * 15.0;
+  
+  float tNormal = u_time.x * 15.0;
+  float tAudio = u_time.x * 15.0 + u_BeatFFT.x * 5.0;
+  uv.x -= mix(tNormal, tAudio, audioActive);
+  
   uv.x = mod( abs(uv.x), 1.0);
   float neon = pow(10.0 * clamp(.2 - uv.x,0.0,1.0), 5.0);
   neon = clamp(neon,0.0,1.0);
@@ -86,7 +83,9 @@ void main() {
   bloom *= pow(NdotV,2.0);
   bloom *= NdotV;
 
+  vec3 audioBloom = bloom.rgb * (1.0 + u_BeatFFT.x * 3.0);
+  bloom.rgb = mix(bloom.rgb, audioBloom, audioActive);
+
   fragColor.rgb += neon * bloom.rgb;
   fragColor.a = 1.0;
-
 }

@@ -73,6 +73,12 @@ window.addEventListener('DOMContentLoaded', () => {
     sound.setNodeSource(audioSource);
     analyser = new THREE.AudioAnalyser(sound, 32);
 
+    audioElement.addEventListener('play', () => {
+        if (audioListener.context.state === 'suspended') {
+            audioListener.context.resume();
+        }
+    });
+
     const selectEl = document.getElementById('sketch-select');
     if (selectEl) {
         selectEl.value = currentFolder;

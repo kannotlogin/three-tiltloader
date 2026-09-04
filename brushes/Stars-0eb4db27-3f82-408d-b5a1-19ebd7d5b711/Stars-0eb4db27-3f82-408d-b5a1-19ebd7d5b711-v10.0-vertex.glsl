@@ -13,11 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Default shader for GlTF web preview.
-//
-// This shader is used as a fall-back when a brush-specific shader is
-// unavailable.
-
 in vec4 a_position;
 in vec3 a_normal;
 in vec4 a_color;
@@ -25,8 +20,8 @@ in vec4 a_texcoord0;
 in vec4 a_texcoord1;
 
 out vec4 v_color;
-out vec3 v_normal;  // Camera-space normal.
-out vec3 v_position;  // Camera-space position.
+out vec3 v_normal;
+out vec3 v_position;
 out vec2 v_texcoord0;
 
 uniform mat4 viewMatrix;
@@ -38,45 +33,20 @@ uniform mat3 normalMatrix;
 uniform vec4 u_time;
 uniform float u_SparkleRate;
 
-// Copyright 2020 The Tilt Brush Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
 
 const float kRecipSquareRootOfTwo = 0.70710678;
 
-// Given a centerpoint, up and right vectors, the particle rotation and vertex index,
-// This will create the appropriate position of a quad that faces the camera.
 vec3 recreateCorner(vec3 center, float corner, float rotation, float size) {
   float c = cos(rotation);
   float s = sin(rotation);
 
-  // Basis in camera space, which is well known.
-  vec3 up = vec3(s, c, 0);
-  vec3 right = vec3(c, -s, 0);
+  vec3 up = vec3(s, c, 0.0);
+  vec3 right = vec3(c, -s, 0.0);
 
-  // Corner diagram:
-  //
-  //   2 . . . 3
-  //   .   |   .
-  //   . - c - < --- center
-  //   .   |   .
-  //   0 . . . 1
-  //
-  // The top corners are corners 2 & 3
-  float fUp = float(corner == 0. || corner == 1.) * 2.0 - 1.0;
-
-  // The corners to the right are corners 1 & 3
-  float fRight = float(corner == 0. || corner == 2.) * 2.0 - 1.0;
+  float fUp = float(corner == 0.0 || corner == 1.0) * 2.0 - 1.0;
+  float fRight = float(corner == 0.0 || corner == 2.0) * 2.0 - 1.0;
 
   center = (modelViewMatrix * vec4(center, 1.0)).xyz;
   center += fRight * right * size;
@@ -84,30 +54,19 @@ vec3 recreateCorner(vec3 center, float corner, float rotation, float size) {
   return (inverse(modelViewMatrix) * vec4(center, 1.0)).xyz;
 }
 
-// Adjusts the vertex of a quad to make a camera-facing quad. Also optionally scales the particle if
-// the particle is in the preview brush.
-vec4 PositionParticle(
-	float vertexId,
-	vec4 vertexPos,
-	vec3 center,
-	float rotation) {
+vec4 PositionParticle(float vertexId, vec4 vertexPos, vec3 center, float rotation) {
+  float corner = mod(vertexId, 4.0);
+  float size = length(vertexPos.xyz - center) * kRecipSquareRootOfTwo;
 
-	float corner = mod(vertexId, 4.0);
-	float size = length(vertexPos.xyz - center) * kRecipSquareRootOfTwo;
+  float scale = modelMatrix[1][1];
+  vec3 newCorner = recreateCorner(center, corner, rotation, size * scale);
 
-	// Gets the scale from the model matrix
-	float scale = modelMatrix[1][1];
-	vec3 newCorner = recreateCorner(center, corner, rotation, size * scale);
-
-	return vec4(newCorner.x, newCorner.y, newCorner.z, 1);
+  return vec4(newCorner.x, newCorner.y, newCorner.z, 1.0);
 }
 
-// Returns the particle position for this vertex, untransformed, in local/object space.
 vec4 GetParticlePositionLS() {
-	return PositionParticle(float(gl_VertexID), a_position, a_normal, a_texcoord0.z);
+  return PositionParticle(float(gl_VertexID), a_position, a_normal, a_texcoord0.z);
 }
-// ---------------------------------------------------------------------------------------------- //
-// ---------------------------------------------------------------------------------------------- //
 
 void main() {
   vec4 pos = GetParticlePositionLS();
@@ -117,11 +76,18 @@ void main() {
   v_normal = normalize(normalMatrix * a_normal);
   v_texcoord0 = a_texcoord0.xy;
 
-
+  float audioActive = step(0.001, u_AudioVolume);
   float PI = 3.14159265359;
   float phase = a_color.a * (2.0 * PI);
-  float brightness = 800.0 * pow(abs(sin(u_time.y * u_SparkleRate + phase)), 20.0);
+  
+  float tNormal = u_time.y * u_SparkleRate + phase;
+  float tAudio = (u_time.y * 3.0 + u_BeatFFT.w * 2.0) * u_SparkleRate + phase;
+  float t = mix(tNormal, tAudio, audioActive);
+  
+  float brightness = 800.0 * pow(abs(sin(t)), 20.0);
+  float brightnessAudio = brightness * 0.25 + 2.0 * brightness * u_BeatFFT.w;
+  brightness = mix(brightness, brightnessAudio, audioActive);
+  
   v_color.rgb = a_color.rgb * brightness;
   v_color.a = 1.0;
-
 }

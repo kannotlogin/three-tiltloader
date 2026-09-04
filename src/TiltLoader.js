@@ -461,27 +461,18 @@ export class TiltLoader extends Loader {
             group.add(mesh);
 
             if (materialName === "Toon") {
-                const posAttr = geometry.getAttribute('position');
-                const normAttr = geometry.getAttribute('normal');
-                const outlineWidth = 0.05; 
-                const inflatedPositions = new Float32Array(posAttr.count * 3);
-                for (let i = 0; i < posAttr.count; i++) {
-                    inflatedPositions[i * 3 + 0] = posAttr.getX(i) + normAttr.getX(i) * outlineWidth;
-                    inflatedPositions[i * 3 + 1] = posAttr.getY(i) + normAttr.getY(i) * outlineWidth;
-                    inflatedPositions[i * 3 + 2] = posAttr.getZ(i) + normAttr.getZ(i) * outlineWidth;
+                const outlineMaterial = material.clone();
+                outlineMaterial.side = BackSide;
+                outlineMaterial.uniforms = { ...material.uniforms };
+                
+                if (material.uniforms.u_isOutline === undefined) {
+                    material.uniforms.u_isOutline = { value: 0.0 };
                 }
-                const outlineGeometry = new BufferGeometry();
-                outlineGeometry.setAttribute('position', new BufferAttribute(inflatedPositions, 3));
-                outlineGeometry.setIndex(geometry.getIndex());
-
-                const outlineMaterial = new MeshBasicMaterial({
-                    color: 0x000000,
-                    side: BackSide,
-                    depthWrite: true,
-                    depthTest: true
-                });
-                const outlineMesh = new Mesh(outlineGeometry, outlineMaterial);
-                outlineMesh.userData.strokeTimeline = strokeTimeline; 
+                outlineMaterial.uniforms.u_isOutline = { value: 1.0 };
+                
+                const outlineMesh = new Mesh(geometry, outlineMaterial);
+                outlineMesh.userData.strokeTimeline = strokeTimeline;
+                outlineMesh.onBeforeRender = mesh.onBeforeRender; 
                 group.add(outlineMesh);
             }
         }

@@ -26,6 +26,9 @@ uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;
 uniform vec4 u_time;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 vec3 hash3(vec3 p) {
   p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
            dot(p, vec3(269.5, 183.3, 246.1)),
@@ -87,7 +90,13 @@ void main() {
 
   vec3 localMidpointPos = a_position.xyz - perVertOffset;
 
-  float t = lifetime;
+  float audioActive = step(0.001, u_AudioVolume);
+  float beatAccumX = u_time.y * 2.0 + u_BeatFFT.x * 2.0; 
+  
+  float tNormal = lifetime;
+  float tAudio = -lifetime * 0.1 + beatAccumX;
+  float t = mix(tNormal, tAudio, audioActive);
+
   float d = 10.0 + a_color.g * 3.0;
   float freq = 1.5 + a_color.r;
   vec3 p = localMidpointPos * freq + vec3(t);

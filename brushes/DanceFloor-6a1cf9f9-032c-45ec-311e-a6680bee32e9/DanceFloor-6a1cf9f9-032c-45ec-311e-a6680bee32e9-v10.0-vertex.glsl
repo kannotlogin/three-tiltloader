@@ -38,14 +38,28 @@ uniform mat4 u_SceneLight_0_matrix;
 uniform mat4 u_SceneLight_1_matrix;
 uniform vec4 u_time;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 void  main() {
   vec4 worldPos = a_position;
+  
+  float audioActive = step(0.001, u_AudioVolume);
+  float bassBeat = pow(u_BeatFFT.x, 3.0);
   
   // Create per-quad variation using hash of quad index
   int quadIndex = gl_VertexID / 4;
   float hash = fract(sin(float(quadIndex) * 12.9898) * 43758.5453);
   float fakeCreationTime = a_timestamp + hash * 2.0;  // Add 0-2 second offset per quad
-  float lifetime = u_time.y - fakeCreationTime;
+  
+  float lifetimeNormal = u_time.y - fakeCreationTime;
+  float lifetimeAudio = fakeCreationTime * 10.0 + u_time.y + bassBeat * 10.0;
+  float lifetime = mix(lifetimeNormal, lifetimeAudio, audioActive);
+  
+  // Quantize vertices
+  float q = 5.0;
+  vec3 quantPos = ceil(worldPos.xyz * q) / q;
+  worldPos.xyz = quantPos;
   
   // Add vertex displacement along normals (Unity: worldPos.xyz += v.normal * pow(fmod(lifetime,1),3) * .1)
   worldPos.xyz += a_normal * pow(mod(lifetime, 1.0), 3.0) * 0.1;
@@ -71,8 +85,10 @@ void  main() {
   animatedColor.xyz = pow(mod(lifetime, 1.0), 3.0) * a_color.xyz;
   
   // Additional Unity color processing: o.color = 2 * v.color + v.color.yzxw * _BeatOutput.x
-  // Skip the _BeatOutput part (audio reactive), but apply the 2x multiplier
-  v_color = 2.0 * animatedColor;
+  vec4 colorNormal = 2.0 * animatedColor;
+  vec4 colorAudio = 2.0 * animatedColor + animatedColor.yzxw * bassBeat;
+  
+  v_color = mix(colorNormal, colorAudio, audioActive);
   
   v_texcoord0 = a_texcoord0;
 }

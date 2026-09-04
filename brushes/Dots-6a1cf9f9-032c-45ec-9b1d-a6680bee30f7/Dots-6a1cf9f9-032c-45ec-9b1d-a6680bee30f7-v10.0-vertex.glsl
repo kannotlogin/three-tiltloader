@@ -25,6 +25,7 @@ out vec3 v_tangent;  // Camera-space tangent.
 out vec3 v_bitangent;  // Camera-space bitangent.
 out vec3 v_position;  // Camera-space position.
 out vec2 v_texcoord0;
+out float v_waveform;
 out vec3 v_light_dir_0;  // Camera-space light direction, main light.
 out vec3 v_light_dir_1;  // Camera-space light direction, other light.
 
@@ -36,6 +37,10 @@ uniform mat3 normalMatrix;
 
 uniform mat4 u_SceneLight_0_matrix;
 uniform mat4 u_SceneLight_1_matrix;
+uniform vec4 u_time;
+
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
 
 // Copyright 2020 The Tilt Brush Authors
 //
@@ -60,8 +65,8 @@ vec3 recreateCorner(vec3 center, float corner, float rotation, float size) {
   float s = sin(rotation);
 
   // Basis in camera space, which is well known.
-  vec3 up = vec3(s, c, 0);
-  vec3 right = vec3(c, -s, 0);
+  vec3 up = vec3(s, c, 0.0);
+  vec3 right = vec3(c, -s, 0.0);
 
   // Corner diagram:
   //
@@ -72,10 +77,10 @@ vec3 recreateCorner(vec3 center, float corner, float rotation, float size) {
   //   0 . . . 1
   //
   // The top corners are corners 2 & 3
-  float fUp = float(corner == 0. || corner == 1.) * 2.0 - 1.0;
+  float fUp = float(corner == 0.0 || corner == 1.0) * 2.0 - 1.0;
 
   // The corners to the right are corners 1 & 3
-  float fRight = float(corner == 0. || corner == 2.) * 2.0 - 1.0;
+  float fRight = float(corner == 0.0 || corner == 2.0) * 2.0 - 1.0;
 
   center = (modelViewMatrix * vec4(center, 1.0)).xyz;
   center += fRight * right * size;
@@ -86,30 +91,40 @@ vec3 recreateCorner(vec3 center, float corner, float rotation, float size) {
 // Adjusts the vertex of a quad to make a camera-facing quad. Also optionally scales the particle if
 // the particle is in the preview brush.
 vec4 PositionParticle(
-	float vertexId,
-	vec4 vertexPos,
-	vec3 center,
-	float rotation) {
+    float vertexId,
+    vec4 vertexPos,
+    vec3 center,
+    float rotation) {
 
-	float corner = mod(vertexId, 4.0);
-	float size = length(vertexPos.xyz - center) * kRecipSquareRootOfTwo;
+    float corner = mod(vertexId, 4.0);
+    float size = length(vertexPos.xyz - center) * kRecipSquareRootOfTwo;
 
-	// Gets the scale from the model matrix
-	float scale = modelMatrix[1][1];
-	vec3 newCorner = recreateCorner(center, corner, rotation, size * scale);
+    // Gets the scale from the model matrix
+    float scale = modelMatrix[1][1];
+    vec3 newCorner = recreateCorner(center, corner, rotation, size * scale);
 
-	return vec4(newCorner.x, newCorner.y, newCorner.z, 1);
+    return vec4(newCorner.x, newCorner.y, newCorner.z, 1.0);
 }
 
 // Returns the particle position for this vertex, untransformed, in local/object space.
 vec4 GetParticlePositionLS() {
-	return PositionParticle(float(gl_VertexID), a_position, a_normal, a_texcoord0.z);
+    return PositionParticle(float(gl_VertexID), a_position, a_normal, a_texcoord0.z);
 }
 // ---------------------------------------------------------------------------------------------- //
 // ---------------------------------------------------------------------------------------------- //
 
 void main() {
   vec4 pos = GetParticlePositionLS();
+  
+  float audioActive = step(0.001, u_AudioVolume);
+  float highMidBeat = pow(u_BeatFFT.z, 2.0);
+  
+  vec4 worldCorner = modelMatrix * pos;
+  float waveformVal = highMidBeat * 0.25 * sin(worldCorner.x * 1.0 + (u_time.y + highMidBeat) * 0.5);
+  vec3 dispVec = vec3(0.0, 1.0, 0.0) * waveformVal;
+  
+  pos.xyz += mix(vec3(0.0), dispVec, audioActive);
+  v_waveform = mix(0.0, waveformVal * 15.0, audioActive);
 
   gl_Position = projectionMatrix * modelViewMatrix * pos;
   // Transform normal view space

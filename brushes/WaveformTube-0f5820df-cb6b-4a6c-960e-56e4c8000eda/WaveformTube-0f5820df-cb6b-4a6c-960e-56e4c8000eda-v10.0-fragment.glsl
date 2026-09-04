@@ -22,17 +22,28 @@ uniform float u_EmissionGain;
 uniform sampler2D u_MainTex;
 uniform vec4 u_time;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 in vec4 v_color;
 in vec2 v_texcoord0;
 
 void main() {
+  float audioActive = step(0.001, u_AudioVolume);
   vec2 uv = v_texcoord0;
-  uv.x -= u_time.x;
+  
+  float tNormal = u_time.x;
+  float tAudio = u_time.x * 2.0 + u_BeatFFT.x * 1.5;
+  uv.x -= mix(tNormal, tAudio, audioActive);
+  
   uv.y += uv.x;
   uv.x *= .25;
 
-  float wav = texture(u_MainTex, vec2(uv.x, 0)).r - .5f;
+  float wavNormal = texture(u_MainTex, vec2(uv.x, 0)).r - .5;
+  float wavAudio = wavNormal + sin(uv.x * 20.0 - u_time.y * 15.0) * u_BeatFFT.y * 0.8;
+  
+  float wav = mix(wavNormal, wavAudio, audioActive);
   uv.y += wav;
-  fragColor = v_color * texture(u_MainTex, uv);
+  
+  fragColor = v_color * texture(u_MainTex, fract(uv));
 }
-

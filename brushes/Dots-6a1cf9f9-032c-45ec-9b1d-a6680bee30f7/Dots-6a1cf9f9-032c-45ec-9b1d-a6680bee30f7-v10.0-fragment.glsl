@@ -19,13 +19,24 @@ out vec4 fragColor;
 
 in vec4 v_color;
 in vec2 v_texcoord0;
+in float v_waveform;
+
 uniform sampler2D u_MainTex;
 uniform vec4 u_TintColor;
 uniform float u_EmissionGain;
 uniform float u_BaseGain;
 
+uniform highp float u_AudioVolume;
+
 void main() {
-  vec4 tex = texture(u_MainTex, v_texcoord0);
+  float audioActive = step(0.001, u_AudioVolume);
+  vec2 uv = v_texcoord0;
+  
+  float vDistance = abs(uv.y - 0.5) * 2.0;
+  float vStretched = (uv.y - 0.5) * (0.5 - abs(v_waveform)) * 2.0 + 0.5;
+  uv.y = mix(uv.y, mix(vStretched, uv.y, vDistance), audioActive);
+  
+  vec4 tex = texture(u_MainTex, uv);
   vec4 c = v_color * u_TintColor * u_BaseGain * tex;
   c.rgb += c.rgb * c.a * u_EmissionGain;
 

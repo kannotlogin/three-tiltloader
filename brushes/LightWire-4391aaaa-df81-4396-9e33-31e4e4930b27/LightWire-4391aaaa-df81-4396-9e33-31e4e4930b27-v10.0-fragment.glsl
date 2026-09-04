@@ -20,9 +20,12 @@ out vec4 fragColor;
 uniform vec4 u_ambient_light_color;
 uniform vec4 u_SceneLight_0_color;
 uniform vec4 u_SceneLight_1_color;
-uniform float u_Shininess;   // Should be in [0.0, 1.0].
+uniform float u_Shininess;   
 uniform vec3 u_SpecColor;
 uniform vec4 u_time;
+
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
 
 in vec4 v_color;
 in vec3 v_normal;
@@ -46,16 +49,9 @@ in float f_fog_coord;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
-
-
-
-
-
 vec3 computeLighting(vec3 diffuseColor, vec3 specularColor, float shininess) {
   vec3 normal = normalize(v_normal);
   if (!gl_FrontFacing) {
-    // Always use front-facing normal for double-sided surfaces.
     normal *= -1.0;
   }
   vec3 lightDir0 = normalize(v_light_dir_0);
@@ -71,13 +67,8 @@ vec3 computeLighting(vec3 diffuseColor, vec3 specularColor, float shininess) {
 }
 
 vec4 bloomColor(vec4 color, float gain) {
-  // Guarantee that there's at least a little bit of all 3 channels.
-  // This makes fully-saturated strokes (which only have 2 non-zero
-  // color channels) eventually clip to white rather than to a secondary.
   float cmin = length(color.rgb) * .05;
   color.rgb = max(color.rgb, vec3(cmin, cmin, cmin));
-  // If we try to remove this pow() from .a, it brightens up
-  // pressure-sensitive strokes; looks better as-is.
   color.r = pow(color.r, 2.2);
   color.g = pow(color.g, 2.2);
   color.b = pow(color.b, 2.2);
@@ -87,6 +78,8 @@ vec4 bloomColor(vec4 color, float gain) {
 }
 
 void main() {
+  float audioActive = step(0.001, u_AudioVolume);
+  
   float envelope = sin ( mod ( v_texcoord0.x*2., 1.) * 3.14159); 
   float lights = envelope < .1 ? 1. : 0.; 
   float border = abs(envelope - .1) < .01 ? 0. : 1.;
@@ -94,22 +87,22 @@ void main() {
   vec3 specularColor = vec3(.3,.3,.3) - lights * vec3(.15,.15,.15);
   float smoothness = .3 - lights * .3;
 
-  float t = u_time.w;
+  float beatAccumX = u_time.y * 3.0 + u_BeatFFT.x;
+  float t = mix(u_time.w, beatAccumX * 10.0, audioActive);
 
   vec4 color = v_color;
   if (lights > 0.) {
-	float colorindex = floor(mod(v_texcoord0.x*2. + 0.5, 3.));
-	if (colorindex == 0.) color.rgb = color.rgb * vec3(.2,.2,1.);
-	else if (colorindex == 1.) color.rgb = color.rgb * vec3(1.,.2,.2);
-	else color.rgb = color.rgb * vec3(.2,1.,.2);
-			
-	float lightindex =  mod(v_texcoord0.x*2. + .5,7.); 
-	float timeindex = mod(t, 7.);
-	float delta = abs(lightindex - timeindex);
-	float on = 1. - clamp(delta*1.5, 0.0, 1.0);
-	color = bloomColor(color * on, .7);
+    float colorindex = floor(mod(v_texcoord0.x*2. + 0.5, 3.));
+    if (colorindex == 0.) color.rgb = color.rgb * vec3(.2,.2,1.);
+    else if (colorindex == 1.) color.rgb = color.rgb * vec3(1.,.2,.2);
+    else color.rgb = color.rgb * vec3(.2,1.,.2);
+        
+    float lightindex =  mod(v_texcoord0.x*2. + .5,7.); 
+    float timeindex = mod(t, 7.);
+    float delta = abs(lightindex - timeindex);
+    float on = 1. - clamp(delta*1.5, 0.0, 1.0);
+    color = bloomColor(color * on, .7);
   }
-
 
   vec3 diffuseColor = (1.- lights) *  color.rgb * .2;
   diffuseColor *= border;
@@ -118,7 +111,10 @@ void main() {
   fragColor.rgb = computeLighting(diffuseColor, specularColor, smoothness);
   fragColor.a = 1.0;
 
-  // Emission
-  fragColor.rgb += lights * color.rgb;
+  vec3 emissionColor = color.rgb;
+  vec3 audioEmission = emissionColor * 0.25 + emissionColor * u_BeatFFT.x * 0.75;
+  emissionColor = mix(emissionColor, audioEmission, audioActive);
+
+  fragColor.rgb += lights * emissionColor;
   fragColor.rgb = ApplyFog(fragColor.rgb, f_fog_coord);
 }

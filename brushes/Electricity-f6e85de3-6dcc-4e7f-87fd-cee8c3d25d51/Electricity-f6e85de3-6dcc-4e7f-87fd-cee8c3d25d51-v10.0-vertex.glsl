@@ -49,6 +49,9 @@ uniform float u_ScrollJitterFrequency;
 uniform float u_DisplacementIntensity;
 uniform float u_DisplacementMod;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 float mod289(float x) {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
 }
@@ -153,6 +156,8 @@ void main() {
   float mod = u_DisplacementMod;
   float time = u_time.w;
   vec3 worldPos = (modelMatrix * a_position).xyz;
+  
+  float audioActive = step(0.001, u_AudioVolume); 
 
   if (!u_isNewTiltExporter) {
     vec3 offsetFromMiddleToEdge_CS = a_texcoord1.xyz;
@@ -164,6 +169,10 @@ void main() {
 
     if (widthiness_CS > 0.0) {
       vec3 dispVec = displacement(midpointPos_CS / widthiness_CS, mod, time);
+      
+      vec3 audioDisp = dispVec * (u_BeatFFT.x * 1.0 + 0.5);
+      dispVec = mix(dispVec, audioDisp, audioActive);
+      
       dispVec = (modelMatrix * vec4(dispVec, 0.0)).xyz;
       worldPos += widthiness_CS * dispVec * u_DisplacementIntensity * envelopePow;
     }
@@ -173,9 +182,17 @@ void main() {
 
     if (widthiness_CS > 0.0) {
       vec3 currentDispVec = displacement(midpointPos_CS / widthiness_CS, mod, time);
+      
+      vec3 audioCurrentDisp = currentDispVec * (u_BeatFFT.x * 1.0 + 0.5);
+      currentDispVec = mix(currentDispVec, audioCurrentDisp, audioActive);
+      
       currentDispVec = (modelMatrix * vec4(currentDispVec, 0.0)).xyz;
       if (u_ElectricityHasBakedDisplacement) {
         vec3 bakedDispVec = displacement(midpointPos_CS / widthiness_CS, 1.0, 0.0);
+        
+        vec3 audioBakedDisp = bakedDispVec * (u_BeatFFT.x * 1.0 + 0.5);
+        bakedDispVec = mix(bakedDispVec, audioBakedDisp, audioActive);
+        
         bakedDispVec = (modelMatrix * vec4(bakedDispVec, 0.0)).xyz;
         worldPos -= widthiness_CS * bakedDispVec * 0.1 * envelopePow;
       }
@@ -185,7 +202,10 @@ void main() {
 
   gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
   v_position = (viewMatrix * vec4(worldPos, 1.0)).xyz;
-  v_color = a_color;
+  
+  vec4 audioColor = a_color * 0.5 + a_color * u_BeatFFT.z * 0.5;
+  v_color = mix(a_color, audioColor, audioActive);
+  
   v_color += v_color * (1.0 - envelopePow);
   v_texcoord0 = a_texcoord0;
 

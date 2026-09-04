@@ -13,10 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Auto-copied from Hypercolor-e8ef32b1-baa8-460a-9c2c-9cf8506794f5-v10.0-fragment.glsl
-// Brush-specific shader for GlTF web preview, based on Standard.glsl
-// generator with parameters: a=0.5.
-
 precision mediump float;
 
 out vec4 fragColor;
@@ -26,7 +22,6 @@ uniform vec4 u_SceneLight_0_color;
 uniform vec4 u_SceneLight_1_color;
 uniform float u_Shininess;   // Should be in [0.0, 1.0].
 uniform vec3 u_SpecColor;
-
 
 in vec4 v_color;
 in vec3 v_normal;
@@ -39,42 +34,13 @@ in vec2 v_texcoord0;
 in float f_fog_coord;
 
 uniform sampler2D u_MainTex;
-uniform vec4 u_time;
 uniform float u_Cutoff;
 
+uniform highp vec4 u_time;
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
+
 float dispAmount = .0005;
-
-// Copyright 2020 The Tilt Brush Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// Copyright 2020 The Tilt Brush Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// Requires a global constant "float dispAmount"
-// TODO: turn it into a parameter!
-
 
 uniform vec4 u_BumpMap_TexelSize;
 
@@ -93,16 +59,8 @@ vec2 xxx_dFdy2(vec2 v) {
 }
 // </HACK>
 
-
-
-
-
-
-
-
 vec3 computeLighting(vec3 diffuseColor, vec3 specularColor, vec3 normal) {
   if (!gl_FrontFacing) {
-    // Always use front-facing normal for double-sided surfaces.
     normal *= -1.0;
   }
   vec3 lightDir0 = normalize(v_light_dir_0);
@@ -119,26 +77,30 @@ vec3 computeLighting(vec3 diffuseColor, vec3 specularColor, vec3 normal) {
 
 void main() {
   vec4 tex = texture(u_MainTex, v_texcoord0);
-
-  // WARNING: PerturbNormal uses derivatives and must not be called conditionally.
   vec3 normal = PerturbNormal(v_tangent, v_bitangent, v_normal, v_texcoord0);
 
-  // Unfortunately, the compiler keeps optimizing the call to PerturbNormal into the branch below, 
-  // causing issues on some hardware/drivers. So we compute lighting just to discard it later.
-  float scroll = u_time.z;
+  float audioActive = step(0.001, u_AudioVolume);
+  float lowMidBeat = pow(u_BeatFFT.y, 2.0);
+
+  float scrollNormal = u_time.z;
+  float scrollAudio = u_time.y * 5.0 + lowMidBeat * 30.0;
+  float scroll = mix(scrollNormal, scrollAudio, audioActive);
+
   tex.rgb = vec3(1.0, 0.0, 0.0) * (sin(tex.r * 2.0 + scroll*0.5 - v_texcoord0.x) + 1.0) * 2.0;
   tex.rgb += vec3(0.0, 1.0, 0.0) * (sin(tex.r * 3.3 + scroll*1.0 - v_texcoord0.x) + 1.0) * 2.0;
   tex.rgb += vec3(0.0, 0.0, 1.0) * (sin(tex.r * 4.66 + scroll*0.25 - v_texcoord0.x) + 1.0) * 2.0;
 
-  float colorMultiplier = 0.5; // This factor is glsl specific - not exactly sure why I need to fudge this to match the look in Tilt Brush.
+  float colorMultiplier = 0.5; 
   vec3 specularColor = u_SpecColor * tex.rgb * colorMultiplier;
   vec3 diffuseColor = tex.rgb * v_color.rgb * colorMultiplier;
+  
+  diffuseColor = mix(diffuseColor, tex.rgb * v_color.rgb * 0.2, audioActive);
+  specularColor = mix(specularColor, specularColor * 0.5, audioActive);
+  
   fragColor.rgb = ApplyFog(computeLighting(diffuseColor, specularColor, normal), f_fog_coord);
   fragColor.a = 1.0;
 
-  // This must come last to ensure PerturbNormal is called uniformly for all invocations.
   if (tex.w <= u_Cutoff) {
-	  discard;
+     discard;
   }
 }
-

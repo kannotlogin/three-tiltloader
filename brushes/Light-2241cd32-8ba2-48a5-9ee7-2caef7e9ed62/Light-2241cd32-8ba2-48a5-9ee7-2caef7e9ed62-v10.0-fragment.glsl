@@ -20,18 +20,15 @@ out vec4 fragColor;
 uniform float u_EmissionGain;
 uniform sampler2D u_MainTex;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+
 in vec4 v_color;
 in vec2 v_texcoord0;
 
-// TODO: This should be pulled into the vertex shader for performance.
 vec4 bloomColor(vec4 color, float gain) {
-  // Guarantee that there's at least a little bit of all 3 channels.
-  // This makes fully-saturated strokes (which only have 2 non-zero
-  // color channels) eventually clip to white rather than to a secondary.
   float cmin = length(color.rgb) * .05;
   color.rgb = max(color.rgb, vec3(cmin, cmin, cmin));
-  // If we try to remove this pow() from .a, it brightens up
-  // pressure-sensitive strokes; looks better as-is.
   color.r = pow(color.r, 2.2);
   color.g = pow(color.g, 2.2);
   color.b = pow(color.b, 2.2);
@@ -41,6 +38,12 @@ vec4 bloomColor(vec4 color, float gain) {
 }
 
 void main() {
+  float audioActive = step(0.001, u_AudioVolume);
   float brush_mask = texture(u_MainTex, v_texcoord0).w;
-    fragColor = brush_mask * bloomColor(v_color, u_EmissionGain);
+  
+  vec4 color = bloomColor(v_color, u_EmissionGain);
+  vec4 audioColor = color;
+  audioColor.rgb *= 0.5 + u_BeatFFT.x * 2.0;
+  
+  fragColor = brush_mask * mix(color, audioColor, audioActive);
 }

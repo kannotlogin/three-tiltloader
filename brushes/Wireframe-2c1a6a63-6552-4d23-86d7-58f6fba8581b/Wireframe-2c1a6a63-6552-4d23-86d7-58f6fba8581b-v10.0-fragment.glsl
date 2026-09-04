@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Wireframe fragment shader (GLSL 3.0)
 precision mediump float;
 
 out vec4 fragColor;
@@ -21,14 +20,25 @@ out vec4 fragColor;
 in vec4 v_color;
 in vec2 v_texcoord0;
 
+uniform float u_AudioVolume;
+uniform vec4 u_BeatFFT;
+uniform vec4 u_time;
+
 void main() {
-  // Wrap UVs into [0,1] to match Unity behavior if data isn’t normalized
+  float audioActive = step(0.001, u_AudioVolume);
   vec2 uv = fract(v_texcoord0);
 
-  // Edge mask in UV space: two lines across center forming a grid
-  float w = 0.0;
-  w = (abs(uv.x - 0.5) > 0.45) ? 1.0 : 0.0;
-  w += (abs(uv.y - 0.5) > 0.45) ? 1.0 : 0.0;
+  float wNormal = 0.0;
+  wNormal = (abs(uv.x - 0.5) > 0.45) ? 1.0 : 0.0;
+  wNormal += (abs(uv.y - 0.5) > 0.45) ? 1.0 : 0.0;
+
+  float waveform = sin(uv.y * 30.0 - u_time.y * 10.0) * u_BeatFFT.y * 0.3;
+  float envelope = sin(uv.y * 3.141569);
+  float xAudio = uv.x + waveform * envelope;
+  
+  float wAudio = (abs(xAudio - 0.5) > 0.5) ? 1.0 : 0.0;
+
+  float w = mix(wNormal, wAudio, audioActive);
 
   fragColor = v_color * w;
 }

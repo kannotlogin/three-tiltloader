@@ -1,4 +1,3 @@
-
 // Copyright 2020 The Tilt Brush Authors
 // Updated to OpenGL ES 3.0 by the Icosa Gallery Authors
 //
@@ -24,9 +23,11 @@ uniform sampler2D u_MainTex;
 uniform vec4 u_time;
 uniform float u_EmissionGain;
 
+uniform highp float u_AudioVolume;
+uniform highp vec4 u_BeatFFT;
+
 in vec4 v_color;
 in vec2 v_texcoord0;
-
 
 vec4 bloomColor(vec4 color, float gain) {
   // Guarantee that there's at least a little bit of all 3 channels.
@@ -50,12 +51,31 @@ void main() {
   vec4 _Time = u_time;
   float _DisplacementIntensity = 0.1;
 
+  float audioActive = step(0.001, u_AudioVolume);
+  float lowMidBeat = pow(u_BeatFFT.y, 3.0);
+  float highMidBeat = pow(u_BeatFFT.z, 3.0);
+
   // Should be done in vertex shader
   vec4 bloomed_v_color = bloomColor(v_color, u_EmissionGain);
 
   float displacement = texture(u_MainTex, v_texcoord0.xy + vec2(-_Time.x * _Scroll1, 0.0)  ).a; 
-  vec4 tex = texture(u_MainTex, v_texcoord0.xy + vec2(-_Time.x * _Scroll2, 0) - displacement * _DisplacementIntensity);
+  vec4 tex = texture(u_MainTex, v_texcoord0.xy + vec2(-_Time.x * _Scroll2, 0.0) - displacement * _DisplacementIntensity);
+  tex.xyz *= step(0.01, tex.xyz);
+
+  float envelope = sin(v_texcoord0.x * 3.14159);
+  float envelopeHalf = sin(v_texcoord0.x * 3.14159 * 0.5);
+
+  float waveform = (sin(v_texcoord0.x * 20.0 + _Time.y * 10.0) * lowMidBeat * 0.15) + displacement * 0.05;
+  float procedural_line = pow(clamp(1.0 - abs((v_texcoord0.y - 0.5) + waveform), 0.0, 1.0), max(100.0 * v_texcoord0.x, 0.001));
+
+  float waveform2 = (cos(v_texcoord0.x * 30.0 + _Time.y * 15.0) * highMidBeat * 0.15) + displacement * 0.02;
+  procedural_line += pow(clamp(1.0 - abs((v_texcoord0.y - 0.5) + waveform2), 0.0, 1.0), max(100.0 * v_texcoord0.x, 0.001));
+
+  vec4 texAudio = tex;
+  texAudio.rgb = tex.rgb * 0.5 + vec3(2.0 * procedural_line * (envelope * envelopeHalf));
+  texAudio.a = tex.a; // Zekerheid dat de alpha NOOIT het kader laat zien
+
+  tex = mix(tex, texAudio, audioActive);
 
   fragColor = bloomed_v_color * tex;
- // fragColor = vec4(fragColor.rgb * fragColor.a * 5.0, tex.a);
 }
