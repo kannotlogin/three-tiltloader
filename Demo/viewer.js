@@ -1,10 +1,17 @@
 const SKETCH_FOLDERS = ['rick and morty', 'mother', 'The Upside Down', 'test-brushes'];
 
+let localBinUrl = null;
+
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     let urlStr = args[0] instanceof Request ? args[0].url : String(args[0]);
     let decodedUrl = urlStr;
     try { decodedUrl = decodeURIComponent(urlStr); } catch(e) {}
+
+    if (localBinUrl && decodedUrl.endsWith('.bin')) {
+        args[0] = localBinUrl;
+        urlStr = args[0];
+    }
 
     for (const folder of SKETCH_FOLDERS) {
         if (decodedUrl.includes(`${folder}/sketch.bin`)) {
@@ -110,23 +117,6 @@ function fitCameraToModel(camera, controls, model) {
     controls.update();
 }
 
-function centerAndScaleModel(model, targetSize) {
-    const box = new THREE.Box3().setFromObject(model);
-    if (box.isEmpty()) return model;
-
-    const size = new THREE.Vector3(); box.getSize(size);
-    const center = new THREE.Vector3(); box.getCenter(center);
-
-    model.position.sub(center);
-    const pivotGroup = new THREE.Group();
-    pivotGroup.add(model);
-
-    const maxDim = Math.max(size.x, size.y, size.z);
-    if (maxDim > 0) pivotGroup.scale.setScalar(targetSize / maxDim);
-
-    return pivotGroup;
-}
-
 // ==========================================
 // SETUP TILT
 // ==========================================
@@ -150,6 +140,7 @@ controlsLeft.target.set(0, 0, 0);
 let sharedTiltBrushEnvironmentUserData = null;
 let leftSceneReadyForEnvironment = false;
 let leftEnvironmentApplied = false;
+let activeTiltMesh = null;
 
 function tryApplyEnvironmentToLeft() {
     if (leftSceneReadyForEnvironment && sharedTiltBrushEnvironmentUserData && !leftEnvironmentApplied) {
@@ -173,94 +164,85 @@ sceneLeft.add(dirLightLeft1.target);
 const tiltLoader = new TiltLoader();
 tiltLoader.setBrushPath('../brushes/'); 
 
-const tiltFilePath = `./${currentFolder}/sketch.tilt`;
-const tiltDir = tiltFilePath.substring(0, tiltFilePath.lastIndexOf('/') + 1);
+function loadTiltModel(url, tiltDir = null) {
+    tiltLoader.load(url, async (promiseData) => {
+        try {
+            const rawModel = await promiseData;
 
-tiltLoader.load(tiltFilePath, async (promiseData) => {
-    try {
-        const rawModel = await promiseData;
+            if (activeTiltMesh) sceneLeft.remove(activeTiltMesh);
+            activeTiltMesh = rawModel;
 
-        rawModel.traverse(child => {
-            if (child.isMesh && child.material) {
-                fixTiltMeshLighting(child);
-
-                const mats = Array.isArray(child.material) ? child.material : [child.material];
-                mats.forEach(mat => {
-                    if (mat.name.includes("Smoke") && mat.uniforms && mat.uniforms.u_TintColor) {
-                        mat.uniforms.u_TintColor.value.set(0.05, 0.05, 0.05, 1.0);
-                    }
-                });
-            }
-        });
-
-        const tiltMeta = rawModel.userData.tiltMetadata;
-        rawModel.scale.setScalar(0.1);
-        rawModel.updateMatrixWorld(true);
-
-        const boxLeft = new THREE.Box3().setFromObject(rawModel);
-        const centerLeft = new THREE.Vector3();
-        boxLeft.getCenter(centerLeft);
-        rawModel.position.sub(centerLeft);
-
-        sceneLeft.add(rawModel);
-        leftSceneReadyForEnvironment = true;
-
-        // 3D loading
-        if (tiltMeta && tiltMeta.ModelIndex) {
-            tiltMeta.ModelIndex.forEach(item => {
-                if (item.AssetId) {
-                    const modelPath = `${tiltDir}extra-models/${item.AssetId}.glb`;
-
-                    const extGltfLoader = new GLTFLoader();
-                    extGltfLoader.load(modelPath, function (gltfExt) {
-                        const baseModel = gltfExt.scene;
-
-                        if (item.RawTransforms && item.RawTransforms.length > 0) {
-                            item.RawTransforms.forEach(transform => {
-                                const pos = transform[0];
-                                const rot = transform[1];
-                                const scl = transform[2];
-
-                                const instance = baseModel.clone();
-
-                                instance.position.set(pos[0], pos[1], -pos[2]);
-                                instance.quaternion.set(-rot[0], -rot[1], rot[2], rot[3]);
-                                instance.scale.setScalar(scl);
-
-                                rawModel.add(instance);
-                            });
-                            console.log(`Extra model loaded: ${item.AssetId}`);
+            rawModel.traverse(child => {
+                if (child.isMesh && child.material) {
+                    fixTiltMeshLighting(child);
+                    const mats = Array.isArray(child.material) ? child.material : [child.material];
+                    mats.forEach(mat => {
+                        if (mat.name.includes("Smoke") && mat.uniforms && mat.uniforms.u_TintColor) {
+                            mat.uniforms.u_TintColor.value.set(0.05, 0.05, 0.05, 1.0);
                         }
-                    }, undefined, (err) => {
-                        console.warn(`Missing 3D model for AssetId: "${item.AssetId}". Place the file in the extra-models folder.`);
                     });
                 }
             });
-        }
 
-        const envDb = await loadEnvironmentDatabase();
-        const cubemapDb = await loadCubemapDatabase(); 
-        const envEntry = envDb && tiltMeta?.EnvironmentPreset ? envDb[tiltMeta.EnvironmentPreset] : null;
-        
-        if (envEntry) {
-            try {
-                applyEnvironmentAssetData(sceneLeft, ambientLightLeft, dirLightLeft0, dirLightLeft1, envEntry, cubemapDb, 'Links/.tilt', tiltMeta, '../src/data/Cubemaps/');
-                leftEnvironmentApplied = true;
-            } catch (e) {
+            const tiltMeta = rawModel.userData.tiltMetadata;
+            rawModel.scale.setScalar(0.1);
+            rawModel.updateMatrixWorld(true);
+
+            const boxLeft = new THREE.Box3().setFromObject(rawModel);
+            const centerLeft = new THREE.Vector3();
+            boxLeft.getCenter(centerLeft);
+            rawModel.position.sub(centerLeft);
+
+            sceneLeft.add(rawModel);
+            leftSceneReadyForEnvironment = true;
+
+            if (tiltMeta && tiltMeta.ModelIndex && tiltDir) {
+                tiltMeta.ModelIndex.forEach(item => {
+                    if (item.AssetId) {
+                        const modelPath = `${tiltDir}extra-models/${item.AssetId}.glb`;
+                        const extGltfLoader = new GLTFLoader();
+                        extGltfLoader.load(modelPath, function (gltfExt) {
+                            const baseModel = gltfExt.scene;
+                            if (item.RawTransforms && item.RawTransforms.length > 0) {
+                                item.RawTransforms.forEach(transform => {
+                                    const pos = transform[0];
+                                    const rot = transform[1];
+                                    const scl = transform[2];
+                                    const instance = baseModel.clone();
+                                    instance.position.set(pos[0], pos[1], -pos[2]);
+                                    instance.quaternion.set(-rot[0], -rot[1], rot[2], rot[3]);
+                                    instance.scale.setScalar(scl);
+                                    rawModel.add(instance);
+                                });
+                            }
+                        }, undefined, (err) => console.warn(`Missing 3D model for AssetId: "${item.AssetId}".`));
+                    }
+                });
+            }
+
+            const envDb = await loadEnvironmentDatabase();
+            const cubemapDb = await loadCubemapDatabase(); 
+            const envEntry = envDb && tiltMeta?.EnvironmentPreset ? envDb[tiltMeta.EnvironmentPreset] : null;
+            
+            if (envEntry) {
+                try {
+                    applyEnvironmentAssetData(sceneLeft, ambientLightLeft, dirLightLeft0, dirLightLeft1, envEntry, cubemapDb, 'Links/.tilt', tiltMeta, '../src/data/Cubemaps/');
+                    leftEnvironmentApplied = true;
+                } catch (e) {
+                    tryApplyEnvironmentToLeft();
+                }
+            } else {
                 tryApplyEnvironmentToLeft();
             }
-        } else {
-            tryApplyEnvironmentToLeft();
+
+            fitCameraToModel(cameraLeft, controlsLeft, rawModel);
+            setupPlayback(rawModel);
+            console.log("Tilt model loaded!");
+        } catch (e) {
+            console.error('[Left/.tilt] Error processing tilt model:', e);
         }
-
-        fitCameraToModel(cameraLeft, controlsLeft, rawModel);
-        setupPlayback(rawModel);
-        console.log("Tilt model loaded!");
-    } catch (e) {
-        console.error('[Left/.tilt] Error processing tilt model:', e);
-    }
-}, undefined, (err) => console.error("Error in TiltLoader:", err));
-
+    }, undefined, (err) => console.error("Error in TiltLoader:", err));
+}
 
 // ==========================================
 // SETUP GLTF
@@ -295,51 +277,130 @@ sceneRight.add(dirLightRight1.target);
 
 const gltfLoader = new GLTFLoader();
 gltfLoader.register(parser => new GLTFGoogleTiltBrushMaterialExtension(parser, '../brushes/', true));
+let activeGltfMesh = null;
 
-gltfLoader.load(`./${currentFolder}/sketch.gltf`, async (gltf) => {
+function loadGltfModel(url) {
+    gltfLoader.load(url, async (gltf) => {
+        if (activeGltfMesh) sceneRight.remove(activeGltfMesh);
+        activeGltfMesh = gltf.scene;
 
-    const userData = gltf.scene.userData || gltf.userData || {};
+        const userData = gltf.scene.userData || gltf.userData || {};
+        sharedTiltBrushEnvironmentUserData = userData;
+        tryApplyEnvironmentToLeft();
 
-    sharedTiltBrushEnvironmentUserData = userData;
-    tryApplyEnvironmentToLeft();
+        const envDb = await loadEnvironmentDatabase();
+        const cubemapDb = await loadCubemapDatabase();
+        const envEntry = envDb && userData.TB_EnvironmentGuid ? envDb[userData.TB_EnvironmentGuid] : null;
 
-    const envDb = await loadEnvironmentDatabase();
-    const cubemapDb = await loadCubemapDatabase();
-    const envEntry = envDb && userData.TB_EnvironmentGuid ? envDb[userData.TB_EnvironmentGuid] : null;
-
-    if (envEntry) {
-        try {
-            applyEnvironmentAssetData(sceneRight, ambientLightRight, dirLightRight0, dirLightRight1, envEntry, cubemapDb, 'Rechts/.gltf', userData, '../src/data/Cubemaps/');
-        } catch (e) {
+        if (envEntry) {
+            try {
+                applyEnvironmentAssetData(sceneRight, ambientLightRight, dirLightRight0, dirLightRight1, envEntry, cubemapDb, 'Rechts/.gltf', userData, '../src/data/Cubemaps/');
+            } catch (e) {
+                applyTBEnvironmentUserData(sceneRight, ambientLightRight, dirLightRight0, dirLightRight1, userData, 'Rechts/.gltf');
+            }
+        } else {
             applyTBEnvironmentUserData(sceneRight, ambientLightRight, dirLightRight0, dirLightRight1, userData, 'Rechts/.gltf');
         }
-    } else {
-        applyTBEnvironmentUserData(sceneRight, ambientLightRight, dirLightRight0, dirLightRight1, userData, 'Rechts/.gltf');
+
+        gltf.scene.traverse(child => {
+            if (child.isMesh && child.material) {
+                const mats = Array.isArray(child.material) ? child.material : [child.material];
+                mats.forEach(m => {
+                    forceDoubleSide(m);
+                    if (m.name.includes("Smoke") && m.uniforms && m.uniforms.u_TintColor) {
+                        m.uniforms.u_TintColor.value.set(1.0, 1.0, 1.0, 1.0);
+                    }
+                });
+            }
+        });
+
+        const boxRight = new THREE.Box3().setFromObject(gltf.scene);
+        const centerRight = new THREE.Vector3();
+        boxRight.getCenter(centerRight);
+        gltf.scene.position.sub(centerRight);
+
+        sceneRight.add(gltf.scene);
+        
+        fitCameraToModel(cameraRight, controlsRight, gltf.scene);
+        console.log("GLTF model loaded with original lighting!");
+    }, undefined, () => {});
+}
+
+// Initial Load
+const tiltFilePath = `./${currentFolder}/sketch.tilt`;
+const tiltDir = tiltFilePath.substring(0, tiltFilePath.lastIndexOf('/') + 1);
+loadTiltModel(tiltFilePath, tiltDir);
+loadGltfModel(`./${currentFolder}/sketch.gltf`);
+
+// ==========================================
+// DRAG AND DROP LOGIC
+// ==========================================
+const dropZone = document.getElementById('drop-zone');
+
+window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.style.display = 'flex';
+});
+
+window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    if (e.target === dropZone) {
+        dropZone.style.display = 'none';
     }
+});
 
-    gltf.scene.traverse(child => {
-        if (child.isMesh && child.material) {
-            const mats = Array.isArray(child.material) ? child.material : [child.material];
-            mats.forEach(m => {
-                forceDoubleSide(m);
+function showToast(message) {
+    const toast = document.getElementById('toast-notification');
+    const msgSpan = document.getElementById('toast-message');
+    msgSpan.textContent = message;
+    toast.classList.add('show');
+    setTimeout(() => {
+        toast.classList.remove('show');
+    }, 4000);
+}
 
-                if (m.name.includes("Smoke") && m.uniforms && m.uniforms.u_TintColor) {
-                    m.uniforms.u_TintColor.value.set(1.0, 1.0, 1.0, 1.0);
-                }
-            });
+window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.style.display = 'none';
+
+    const files = Array.from(e.dataTransfer.files);
+    let gltfFile = null;
+    let binFile = null;
+
+    files.forEach(file => {
+        const name = file.name.toLowerCase();
+        if (name.endsWith('.mp3')) {
+            const audioElement = document.getElementById('music-player');
+            audioElement.src = URL.createObjectURL(file);
+            audioElement.play();
+        } else if (name.endsWith('.tilt')) {
+            loadTiltModel(URL.createObjectURL(file));
+        } else if (name.endsWith('.gltf')) {
+            gltfFile = file;
+        } else if (name.endsWith('.bin')) {
+            binFile = file;
         }
     });
 
-    const boxRight = new THREE.Box3().setFromObject(gltf.scene);
-    const centerRight = new THREE.Vector3();
-    boxRight.getCenter(centerRight);
-    gltf.scene.position.sub(centerRight);
+    if (gltfFile) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const content = event.target.result;
+            const needsBin = content.includes('.bin') || content.includes('uri');
 
-    sceneRight.add(gltf.scene);
-    
-    fitCameraToModel(cameraRight, controlsRight, gltf.scene);
-    console.log("GLTF model loaded with original lighting!");
-}, undefined, () => {});
+            if (needsBin && !binFile) {
+                showToast("Missing .bin file! Drag the .gltf and .bin files at the same time.");
+                return;
+            }
+
+            if (binFile) {
+                localBinUrl = URL.createObjectURL(binFile);
+            }
+            loadGltfModel(URL.createObjectURL(gltfFile));
+        };
+        reader.readAsText(gltfFile);
+    }
+});
 
 
 // ==========================================
