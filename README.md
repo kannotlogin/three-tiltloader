@@ -1,13 +1,10 @@
-# three-tiltloader
+# @kannotlogin/three-tiltloader
 
-[![Latest NPM release](https://img.shields.io/npm/v/three-tiltloader.svg)](https://www.npmjs.com/package/three-tiltloader)
-[![Support us on Open Collective!](https://img.shields.io/opencollective/all/icosa?logo=open-collective&label=Support%20us%20on%20Open%20Collective%21)](https://opencollective.com/icosa)
-[![Twitter](https://img.shields.io/badge/follow-%40IcosaGallery-blue.svg?style=flat&logo=twitter)](https://twitter.com/IcosaGallery)
-[![Discord](https://discordapp.com/api/guilds/783806589991780412/embed.png?style=shield)](https://discord.gg/W7NCEYnEfy)
+[![Latest NPM release](https://img.shields.io/npm/v/@kannotlogin/three-tiltloader.svg)](https://www.npmjs.com/package/@kannotlogin/three-tiltloader)
 
 > **Notice of Modifications (Apache 2.0):**
-> This repository is a modified version of the original `three-tiltloader`. 
-> Changes include bug fixes, the addition of new generation scripts, and a custom demo environment setup. 
+> This repository is a manually forked and modified version of the original `three-tiltloader` by IcosaGallery (branched from commit `045117ab4f9dac540c9d76aa57f3ab7e04367da8`). 
+> Changes include bug fixes, the addition of new generation scripts, experimental audio-reactive shaders, and a custom demo environment setup. 
 > These modifications are distributed under the same Apache 2.0 License. Original project by IcosaGallery.
 
 Custom three.js loader for the `.tilt` format used by Tilt Brush and Open Brush. The loader will inject the relevant shaders and textures for correct rendering of the file.
@@ -16,34 +13,19 @@ Adapted from the initial [TiltLoader](https://github.com/mrdoob/three.js/blob/r1
 
 This project aims to provide a simple way to load and render raw .tilt files on the web, using the three.js library.
 
-The loader is still a work in progress and subject to change. Please join the [Discord](https://discord.gg/W7NCEYnEfy) to discuss the project!
-
-If you would like to support our projects, we are on [Open Collective](https://opencollective.com/icosa)!
-
-
 # Installation
 
-The loader is designed to be used with `three.js`. The library has been tested against `r128`, but may work with other releases.
+The loader is designed to be used with modern `three.js`. The library has been tested against `r181`, but may work with other releases.
 
 ## Important
 
-You need to pass the loader a path to a folder containing all the relevant brushes and textures. This has been omitted to reduce package size and leave brush location up to the implementer. You can get a copy of the brushes folder in the root of this project's repository.
+You need to pass the loader a path to a folder containing all the relevant brushes and textures. This has been included in the NPM package, so you can host the `brushes` folder locally or serve it directly via a CDN like unpkg.
 
 ## Install via npm
 
-`npm install --save three-tiltloader`
+`npm install --save @kannotlogin/three-tiltloader`
 
 # Example Usage
 
 ```js
-import { TiltLoader } from 'three-tiltloader';
-...
-
-let loader = new TiltLoader();
-loader.setPath('path/to/brush/folder');
-
-loader.setBrushDirectory( 'path/to/brush/folder' );
-loader.load( 'path/to/tilt/sketch.tilt', ( model ) => {
-    scene.add( model );
-});
-```
+import { TiltLoader } from '@kannotlogin/three-tiltloader';
